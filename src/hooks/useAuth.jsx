@@ -8,7 +8,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Carica il profilo salvato nel browser
     const saved = localStorage.getItem('gs_profile')
     if (saved) {
       try { setProfile(JSON.parse(saved)) } catch {}
@@ -27,9 +26,11 @@ export function AuthProvider({ children }) {
   }
 
   const isAdmin = profile?.role === 'admin'
+  const isCoach = profile?.role === 'coach'
+  const isSostegno = profile?.role === 'sostegno'
 
   return (
-    <AuthContext.Provider value={{ profile, loading, isAdmin, selectProfile, signOut }}>
+    <AuthContext.Provider value={{ profile, loading, isAdmin, isCoach, isSostegno, selectProfile, signOut }}>
       {children}
     </AuthContext.Provider>
   )
