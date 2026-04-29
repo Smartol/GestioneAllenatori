@@ -234,7 +234,8 @@ function PresenceForm({ event, profile, onDone, onCancel }) {
     } else {
       payload.activity_id = event.id
     }
-
+    
+    console.log('payload presenza:', JSON.stringify(payload))
     await supabase.from('attendances').insert(payload)
     setSaving(false)
     onDone()
