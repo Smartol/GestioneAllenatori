@@ -202,6 +202,8 @@ function TrainingsTab({ allCats, allGroups }) {
     }).select().single()
 
     if (error) { setSaving(false); alert('Errore: ' + error.message); return }
+    console.log('training inserito:', tr)
+    console.log('selected:', selected)
 
     for (const s of selected) {
       await supabase.from('recurring_training_categories').insert({
