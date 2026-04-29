@@ -72,7 +72,7 @@ export default function CalendarPage() {
               key={v}
               onClick={() => setView(v)}
               style={{
-                padding: '4px 12px', fontSize: 12, border: 'none', borderRadius: 6, cursor: 'pointer',
+                padding: '4px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
                 background: view === v ? '#fff' : 'transparent',
                 fontWeight: view === v ? 500 : 400,
                 color: view === v ? '#1a1a1a' : '#888',
