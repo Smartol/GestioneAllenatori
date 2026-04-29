@@ -11,7 +11,7 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(TODAY)
   const [selectedEvent, setSelectedEvent] = useState(null)
 
-  const { trainings, festivals, attendances, overrides, loading, refetch } = useCalendarData(currentDate, view)
+  const { trainings, activities, attendances, overrides, exceptions, loading, refetch } = useCalendarData(currentDate, view)
 
   function navigate(dir) {
     if (view === 'week') setCurrentDate(d => dir > 0 ? addWeeks(d, 1) : subWeeks(d, 1))
@@ -27,28 +27,38 @@ export default function CalendarPage() {
     return format(currentDate, 'MMMM yyyy', { locale: it })
   }
 
+  function isException(trainingId, dateStr) {
+    return exceptions.some(e => e.training_id === trainingId && e.instance_date === dateStr)
+  }
+
+  function isInRange(training, dateStr) {
+    if (training.start_date && dateStr < training.start_date) return false
+    if (training.end_date && dateStr > training.end_date) return false
+    return true
+  }
+
   function getEventsForDay(date) {
-    const dow = getDay(date) === 0 ? 7 : getDay(date) // 1=Lun, 7=Dom
+    const dow = getDay(date) === 0 ? 7 : getDay(date)
+    const dateStr = format(date, 'yyyy-MM-dd')
     const result = []
 
     trainings.forEach(t => {
-      if (t.day_of_week === dow) {
-        const dateStr = format(date, 'yyyy-MM-dd')
-        const override = overrides.find(o => o.training_id === t.id && o.instance_date === dateStr)
-        const cats = override
-          ? override.instance_override_categories
-          : t.recurring_training_categories
-        const att = attendances.filter(a => a.training_id === t.id && a.instance_date === dateStr)
-        const coverage = computeCoverage(cats, att)
-        result.push({ ...t, eventType: 'training', date, dateStr, cats, coverage, override })
-      }
+      if (t.day_of_week !== dow) return
+      if (!isInRange(t, dateStr)) return
+      if (isException(t.id, dateStr)) return
+
+      const override = overrides.find(o => o.training_id === t.id && o.instance_date === dateStr)
+      const slots = override ? override.instance_override_categories : t.recurring_training_categories
+      const att = attendances.filter(a => a.training_id === t.id && a.instance_date === dateStr)
+      const coverage = computeCoverage(slots, att)
+      result.push({ ...t, eventType: 'training', date, dateStr, slots, coverage, override })
     })
 
-    festivals.forEach(f => {
-      if (isSameDay(new Date(f.date), date)) {
-        const att = attendances.filter(a => a.festival_id === f.id)
-        const coverage = computeCoverage(f.festival_categories, att)
-        result.push({ ...f, eventType: 'festival', date, dateStr: f.date, cats: f.festival_categories, coverage })
+    activities.forEach(act => {
+      if (isSameDay(new Date(act.date + 'T00:00:00'), date)) {
+        const att = attendances.filter(a => a.activity_id === act.id)
+        const coverage = computeCoverage(act.activity_categories, att)
+        result.push({ ...act, eventType: 'activity', date, dateStr: act.date, slots: act.activity_categories, coverage })
       }
     })
 
@@ -85,28 +95,25 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* Calendar grid */}
       {view === 'week'
         ? <WeekView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} />
         : <MonthView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} />
       }
 
-      {/* Legend */}
       <div className="cal-legend">
         <div className="leg-item"><div className="leg-dot green" /> Copertura soddisfatta</div>
         <div className="leg-item"><div className="leg-dot orange" /> Al limite / jolly</div>
         <div className="leg-item"><div className="leg-dot red" /> Insufficiente</div>
-        <div className="leg-item"><div className="leg-rect" /> Festival</div>
+        <div className="leg-item"><div className="leg-rect" /> Festival / Attività</div>
       </div>
 
-      {/* Modal */}
       {selectedEvent && (
         <EventModal
           event={selectedEvent}
           attendances={attendances.filter(a =>
             selectedEvent.eventType === 'training'
               ? a.training_id === selectedEvent.id && a.instance_date === selectedEvent.dateStr
-              : a.festival_id === selectedEvent.id
+              : a.activity_id === selectedEvent.id
           )}
           onClose={() => setSelectedEvent(null)}
           onRefetch={() => { refetch(); setSelectedEvent(null) }}
@@ -126,7 +133,6 @@ function WeekView({ currentDate, getEventsForDay, onEventClick }) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', border: '1px solid #e5e5e5', borderRadius: 12, overflow: 'hidden', minWidth: 480 }}>
-        {/* Header */}
         <div style={{ background: '#f8f8f7', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #e5e5e5' }} />
         {days.map((d, i) => {
           const isToday = isSameDay(d, new Date())
@@ -143,27 +149,35 @@ function WeekView({ currentDate, getEventsForDay, onEventClick }) {
           )
         })}
 
-        {/* Time rows */}
         {TIMES.map((time, ti) => (
           <>
             <div key={'t' + ti} style={{ fontSize: 10, color: '#bbb', textAlign: 'right', padding: '4px 4px 0 0', height: 52, borderRight: '1px solid #e5e5e5', borderBottom: '1px solid #e5e5e5', background: '#f8f8f7' }}>{time}</div>
             {days.map((d, di) => {
               const evs = getEventsForDay(d).filter(ev =>
-                ev.eventType === 'training' ? ev.start_time?.startsWith(time) : ti === 1
+                ev.eventType === 'training'
+                  ? ev.start_time?.startsWith(time)
+                  : ti === 1
               )
               return (
                 <div key={'d' + ti + di} style={{ height: 52, position: 'relative', borderRight: di < 6 ? '1px solid #e5e5e5' : 'none', borderBottom: '1px solid #e5e5e5' }}>
-                  {evs.map(ev => ev.eventType === 'training' || ti === 1 ? (
+                  {evs.map(ev => (
                     <div
-                      key={ev.id}
+                      key={ev.id + ev.eventType}
                       className={`ev-block ${getCovColor(ev.coverage)}`}
-                      style={{ position: 'absolute', left: 2, right: 2, top: 2 }}
+                      style={{
+                        position: 'absolute', left: 2, right: 2, top: 2,
+                        borderLeft: ev.eventType === 'activity' ? '3px solid #7c3aed' : undefined,
+                      }}
                       onClick={() => onEventClick(ev)}
                     >
-                      <div className="ev-title">{ev.name || ev.title || 'Allenamento'}{ev.eventType === 'festival' ? ' ★' : ''}</div>
-                      <div className="ev-meta">{ev.cats?.map(c => c.category?.name).join(', ')}</div>
+                      <div className="ev-title">
+                        {ev.title || 'Allenamento'}{ev.eventType === 'activity' ? ' ★' : ''}
+                      </div>
+                      <div className="ev-meta">
+                        {ev.slots?.map(s => s.category?.name || s.group?.name || '').filter(Boolean).join(', ')}
+                      </div>
                     </div>
-                  ) : null)}
+                  ))}
                 </div>
               )
             })}
@@ -202,22 +216,24 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
                 background: isToday ? '#1a1a1a' : 'transparent',
                 color: isToday ? '#fff' : isThisMonth ? '#555' : '#ccc',
               }}>{d.getDate()}</div>
-              {evs.map(ev => (
-                <div
-                  key={ev.id + ev.eventType}
-                  className={`mev ${getCovColor(ev.coverage)}${ev.eventType === 'festival' ? ' festival' : ''}`}
-                  style={{
-                    fontSize: 9, fontWeight: 500, borderRadius: 3, padding: '1px 4px', marginBottom: 2,
-                    cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    background: getCovColor(ev.coverage) === 'green' ? '#d4edda' : getCovColor(ev.coverage) === 'orange' ? '#fde8c8' : '#fcd5d5',
-                    color: getCovColor(ev.coverage) === 'green' ? '#2e7d4f' : getCovColor(ev.coverage) === 'orange' ? '#b8610a' : '#b91c1c',
-                    borderLeft: ev.eventType === 'festival' ? '2px solid #7c3aed' : 'none',
-                  }}
-                  onClick={() => onEventClick(ev)}
-                >
-                  {ev.name || 'Allenamento'}{ev.eventType === 'festival' ? ' ★' : ''}
-                </div>
-              ))}
+              {evs.map(ev => {
+                const color = getCovColor(ev.coverage)
+                return (
+                  <div
+                    key={ev.id + ev.eventType}
+                    style={{
+                      fontSize: 9, fontWeight: 500, borderRadius: 3, padding: '1px 4px', marginBottom: 2,
+                      cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      background: color === 'green' ? '#d4edda' : color === 'orange' ? '#fde8c8' : '#fcd5d5',
+                      color: color === 'green' ? '#2e7d4f' : color === 'orange' ? '#b8610a' : '#b91c1c',
+                      borderLeft: ev.eventType === 'activity' ? '2px solid #7c3aed' : 'none',
+                    }}
+                    onClick={() => onEventClick(ev)}
+                  >
+                    {ev.title || 'Allenamento'}{ev.eventType === 'activity' ? ' ★' : ''}
+                  </div>
+                )
+              })}
             </div>
           )
         })}
