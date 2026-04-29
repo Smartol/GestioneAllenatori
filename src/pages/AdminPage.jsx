@@ -5,12 +5,30 @@ const DAYS = ['', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', '
 
 export default function AdminPage() {
   const [tab, setTab] = useState('trainings')
+  const [allCats, setAllCats] = useState([])
+  const [allGroups, setAllGroups] = useState([])
+
+  // Carica categorie e gruppi una volta sola qui, poi li passa ai tab
+  useEffect(() => {
+    supabase.from('categories').select('id,name').order('name')
+      .then(({ data }) => setAllCats(data || []))
+    supabase.from('category_groups')
+      .select('id, name, category_group_members(category:categories(id,name))')
+      .then(({ data }) => setAllGroups(data || []))
+  }, [])
+
   const tabs = [
     { id: 'trainings', label: 'Allenamenti' },
     { id: 'activities', label: 'Attività' },
     { id: 'groups', label: 'Gruppi categorie' },
     { id: 'coaches', label: 'Allenatori' },
   ]
+
+  function reloadGroups() {
+    supabase.from('category_groups')
+      .select('id, name, category_group_members(category:categories(id,name))')
+      .then(({ data }) => setAllGroups(data || []))
+  }
 
   return (
     <div>
@@ -23,9 +41,9 @@ export default function AdminPage() {
           }}>{t.label}</button>
         ))}
       </div>
-      {tab === 'trainings' && <TrainingsTab />}
-      {tab === 'activities' && <ActivitiesTab />}
-      {tab === 'groups' && <GroupsTab />}
+      {tab === 'trainings' && <TrainingsTab allCats={allCats} allGroups={allGroups} />}
+      {tab === 'activities' && <ActivitiesTab allCats={allCats} allGroups={allGroups} />}
+      {tab === 'groups' && <GroupsTab allCats={allCats} onGroupsChanged={reloadGroups} />}
       {tab === 'coaches' && <CoachesTab />}
     </div>
   )
@@ -33,17 +51,10 @@ export default function AdminPage() {
 
 /* ============================================================
    SELETTORE CATEGORIE + GRUPPI
+   Riceve allCats e allGroups come props — nessuna query interna
    ============================================================ */
-function CategoryGroupSelector({ selected, onToggle, mins, onMinChange }) {
-  const [allCats, setAllCats] = useState([])
-  const [allGroups, setAllGroups] = useState([])
-
-  useEffect(() => {
-    supabase.from('categories').select('id,name').order('name').then(({ data }) => setAllCats(data || []))
-    supabase.from('category_groups')
-      .select('id, name, category_group_members(category:categories(id,name))')
-      .then(({ data }) => setAllGroups(data || []))
-  }, [])
+function CategoryGroupSelector({ allCats, allGroups, selected, onToggle, mins, onMinChange }) {
+  function isSelected(key) { return !!selected.find(s => s.key === key) }
 
   return (
     <div>
@@ -53,11 +64,10 @@ function CategoryGroupSelector({ selected, onToggle, mins, onMinChange }) {
           <div className="chip-group">
             {allCats.map(c => {
               const key = `cat_${c.id}`
-              const isSel = !!selected.find(s => s.key === key)
               return (
                 <div
                   key={key}
-                  className={`chip${isSel ? ' selected' : ''}`}
+                  className={`chip${isSelected(key) ? ' selected' : ''}`}
                   onClick={() => onToggle({ key, type: 'category', id: c.id, name: c.name })}
                 >
                   {c.name}
@@ -74,12 +84,11 @@ function CategoryGroupSelector({ selected, onToggle, mins, onMinChange }) {
           <div className="chip-group">
             {allGroups.map(g => {
               const key = `grp_${g.id}`
-              const isSel = !!selected.find(s => s.key === key)
               const label = g.name || g.category_group_members?.map(m => m.category?.name).join('+')
               return (
                 <div
                   key={key}
-                  className={`chip${isSel ? ' selected' : ''}`}
+                  className={`chip${isSelected(key) ? ' selected' : ''}`}
                   onClick={() => onToggle({ key, type: 'group', id: g.id, groupName: label })}
                 >
                   {label}
@@ -88,6 +97,10 @@ function CategoryGroupSelector({ selected, onToggle, mins, onMinChange }) {
             })}
           </div>
         </div>
+      )}
+
+      {allCats.length === 0 && allGroups.length === 0 && (
+        <p style={{ fontSize: 12, color: '#aaa' }}>Caricamento categorie...</p>
       )}
 
       {selected.length > 0 && (
@@ -114,7 +127,7 @@ function CategoryGroupSelector({ selected, onToggle, mins, onMinChange }) {
 /* ============================================================
    ALLENAMENTI
    ============================================================ */
-function TrainingsTab() {
+function TrainingsTab({ allCats, allGroups }) {
   const [items, setItems] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [errors, setErrors] = useState({})
@@ -165,8 +178,7 @@ function TrainingsTab() {
     const e = {}
     if (!startTime) e.startTime = 'Orario di inizio obbligatorio'
     if (selected.length === 0) e.selected = 'Seleziona almeno una categoria o gruppo'
-    if (isRecurring) { if (!dow) e.dow = 'Seleziona un giorno' }
-    else { if (!singleDate) e.singleDate = 'Seleziona una data' }
+    if (!isRecurring && !singleDate) e.singleDate = 'Seleziona una data'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -189,7 +201,7 @@ function TrainingsTab() {
       end_date: isRecurring ? (endDate || null) : singleDate,
     }).select().single()
 
-    if (error) { setSaving(false); alert('Errore nel salvataggio: ' + error.message); return }
+    if (error) { setSaving(false); alert('Errore: ' + error.message); return }
 
     for (const s of selected) {
       await supabase.from('recurring_training_categories').insert({
@@ -346,12 +358,14 @@ function TrainingsTab() {
             </>
           ) : (
             <div className="field">
-              <label>Data {errors.singleDate && <span style={{ color: '#ef4444' }}>— {errors.singleDate}</span>}</label>
+              <label>Data {errors.singleDate && <span style={{ color: '#ef4444', fontSize: 11 }}>— {errors.singleDate}</span>}</label>
               <input type="date" value={singleDate} onChange={e => { setSingleDate(e.target.value); setErrors(er => ({ ...er, singleDate: undefined })) }} />
             </div>
           )}
 
           <CategoryGroupSelector
+            allCats={allCats}
+            allGroups={allGroups}
             selected={selected}
             onToggle={handleToggle}
             mins={mins}
@@ -372,9 +386,9 @@ function TrainingsTab() {
 }
 
 /* ============================================================
-   ATTIVITÀ (ex Festival)
+   ATTIVITÀ
    ============================================================ */
-function ActivitiesTab() {
+function ActivitiesTab({ allCats, allGroups }) {
   const [items, setItems] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [errors, setErrors] = useState({})
@@ -415,7 +429,6 @@ function ActivitiesTab() {
   function validate() {
     const e = {}
     if (!date) e.date = 'Data obbligatoria'
-    if (!startTime) e.startTime = 'Orario obbligatorio'
     if (type === 'other' && !title.trim()) e.title = 'Il titolo è obbligatorio'
     if (selected.length === 0) e.selected = 'Seleziona almeno una categoria o gruppo'
     setErrors(e)
@@ -551,6 +564,8 @@ function ActivitiesTab() {
           )}
 
           <CategoryGroupSelector
+            allCats={allCats}
+            allGroups={allGroups}
             selected={selected}
             onToggle={handleToggle}
             mins={mins}
@@ -573,11 +588,10 @@ function ActivitiesTab() {
 /* ============================================================
    GRUPPI CATEGORIE
    ============================================================ */
-function GroupsTab() {
+function GroupsTab({ allCats, onGroupsChanged }) {
   const [items, setItems] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [groupName, setGroupName] = useState('')
-  const [allCats, setAllCats] = useState([])
   const [selCats, setSelCats] = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -585,10 +599,8 @@ function GroupsTab() {
   useEffect(() => { load() }, [])
 
   async function load() {
-    const { data: groups } = await supabase.from('category_groups').select(`*, category_group_members(category:categories(id,name))`)
-    const { data: cats } = await supabase.from('categories').select('id,name').order('name')
-    setItems(groups || [])
-    setAllCats(cats || [])
+    const { data } = await supabase.from('category_groups').select(`*, category_group_members(category:categories(id,name))`)
+    setItems(data || [])
   }
 
   function toggleCat(id) {
@@ -603,12 +615,16 @@ function GroupsTab() {
     for (const catId of selCats) {
       await supabase.from('category_group_members').insert({ group_id: g.id, category_id: catId })
     }
-    setSaving(false); setShowForm(false); setGroupName(''); setSelCats([]); setError(''); load()
+    setSaving(false); setShowForm(false); setGroupName(''); setSelCats([]); setError('')
+    load()
+    onGroupsChanged()
   }
 
   async function remove(id) {
     if (!window.confirm('Rimuovere questo gruppo?')) return
-    await supabase.from('category_groups').delete().eq('id', id); load()
+    await supabase.from('category_groups').delete().eq('id', id)
+    load()
+    onGroupsChanged()
   }
 
   return (
@@ -658,6 +674,7 @@ function GroupsTab() {
                 </div>
               ))}
             </div>
+            {allCats.length === 0 && <p style={{ fontSize: 12, color: '#aaa', marginTop: 4 }}>Caricamento...</p>}
             {error && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>{error}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>

@@ -13,7 +13,6 @@ export default function LoginPage() {
 
   // PIN admin
   const [pendingProfile, setPendingProfile] = useState(null)
-  const [showPin, setShowPin] = useState(false)
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState('')
   const [pinLoading, setPinLoading] = useState(false)
@@ -27,12 +26,11 @@ export default function LoginPage() {
     setLoading(false)
   }
 
-  async function handleSelectProfile(p) {
+  function handleSelectProfile(p) {
     if (p.role === 'admin') {
       setPendingProfile(p)
       setPin('')
       setPinError('')
-      setShowPin(true)
     } else {
       selectProfile(p)
     }
@@ -42,12 +40,17 @@ export default function LoginPage() {
     if (!pin.trim()) return
     setPinLoading(true)
     setPinError('')
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('app_settings')
       .select('value')
       .eq('key', 'admin_pin')
       .single()
-    if (data?.value === pin.trim()) {
+    if (error || !data) {
+      setPinError('Errore nel recupero del PIN')
+      setPinLoading(false)
+      return
+    }
+    if (data.value === pin.trim()) {
       selectProfile(pendingProfile)
     } else {
       setPinError('PIN non corretto')
@@ -63,26 +66,21 @@ export default function LoginPage() {
       .insert({ full_name: newName.trim(), role: newRole })
       .select()
       .single()
-    if (!error && data) {
-      if (data.role === 'admin') {
-        setPendingProfile(data)
-        setPin('')
-        setPinError('')
-        setShowPin(true)
-        setShowAdd(false)
-        setNewName('')
-        setNewRole('coach')
-      } else {
-        selectProfile(data)
-      }
-    }
     setSaving(false)
+    if (error || !data) {
+      alert('Errore nel salvataggio: ' + (error?.message || 'sconosciuto'))
+      return
+    }
+    setShowAdd(false)
+    setNewName('')
+    setNewRole('coach')
+    handleSelectProfile(data)
   }
 
   function copyUrl() {
     navigator.clipboard.writeText(window.location.origin)
       .then(() => alert('Link copiato negli appunti!'))
-      .catch(() => alert('Impossibile copiare automaticamente. URL: ' + window.location.origin))
+      .catch(() => alert('URL: ' + window.location.origin))
   }
 
   const roleLabel = (role) => {
@@ -97,6 +95,50 @@ export default function LoginPage() {
     return 'badge-coach'
   }
 
+  // Schermata PIN admin
+  if (pendingProfile) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: '#f5f5f4', padding: 16
+      }}>
+        <div className="card" style={{ width: 320 }}>
+          <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Accesso amministratore</h1>
+          <p style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
+            Inserisci il PIN per accedere come <strong>{pendingProfile.full_name}</strong>
+          </p>
+          <div className="field">
+            <label>PIN</label>
+            <input
+              type="password"
+              value={pin}
+              onChange={e => { setPin(e.target.value); setPinError('') }}
+              onKeyDown={e => e.key === 'Enter' && confirmPin()}
+              placeholder="••••"
+              autoFocus
+            />
+            {pinError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{pinError}</p>}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={confirmPin}
+              disabled={!pin.trim() || pinLoading}
+            >
+              {pinLoading ? 'Verifica...' : 'Accedi'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPendingProfile(null)}
+            >
+              Indietro
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center',
@@ -109,48 +151,6 @@ export default function LoginPage() {
         {loading
           ? <p style={{ fontSize: 13, color: '#aaa', textAlign: 'center', padding: 16 }}>Caricamento...</p>
           : <>
-            {/* PIN modal overlay */}
-            {showPin && (
-              <div style={{
-                position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-              }}>
-                <div className="card" style={{ width: 300, padding: 24 }}>
-                  <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>Accesso amministratore</div>
-                  <p style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
-                    Inserisci il PIN per accedere come <strong>{pendingProfile?.full_name}</strong>
-                  </p>
-                  <div className="field">
-                    <label>PIN</label>
-                    <input
-                      type="password"
-                      value={pin}
-                      onChange={e => { setPin(e.target.value); setPinError('') }}
-                      onKeyDown={e => e.key === 'Enter' && confirmPin()}
-                      placeholder="••••"
-                      autoFocus
-                    />
-                    {pinError && <p style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{pinError}</p>}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={confirmPin}
-                      disabled={!pin.trim() || pinLoading}
-                    >
-                      {pinLoading ? 'Verifica...' : 'Accedi'}
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => { setShowPin(false); setPendingProfile(null) }}
-                    >
-                      Annulla
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
               {profiles.map(p => (
                 <button
@@ -171,52 +171,60 @@ export default function LoginPage() {
               ))}
             </div>
 
-            {!showAdd
-              ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {!showAdd ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed' }}
+                  onClick={() => setShowAdd(true)}
+                >
+                  + Non mi trovo nella lista
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={copyUrl}
+                >
+                  🔗 Condividi link app
+                </button>
+              </div>
+            ) : (
+              <div style={{ borderTop: '1px solid #e5e5e5', paddingTop: 16 }}>
+                <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Aggiungi il tuo nome</p>
+                <div className="field">
+                  <label>Nome e cognome</label>
+                  <input
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
+                    placeholder="es. Mario Rossi"
+                    autoFocus
+                  />
+                </div>
+                <div className="field">
+                  <label>Ruolo</label>
+                  <select value={newRole} onChange={e => setNewRole(e.target.value)}>
+                    <option value="coach">Allenatore</option>
+                    <option value="sostegno">Sostegno</option>
+                    <option value="admin">Amministratore</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
                   <button
-                    className="btn btn-secondary"
-                    style={{ width: '100%', justifyContent: 'center', borderStyle: 'dashed' }}
-                    onClick={() => setShowAdd(true)}
+                    className="btn btn-primary btn-sm"
+                    onClick={addProfile}
+                    disabled={!newName.trim() || saving}
                   >
-                    + Non mi trovo nella lista
+                    {saving ? 'Salvataggio...' : 'Accedi'}
                   </button>
                   <button
-                    className="btn btn-secondary"
-                    style={{ width: '100%', justifyContent: 'center' }}
-                    onClick={copyUrl}
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setShowAdd(false); setNewName(''); setNewRole('coach') }}
                   >
-                    🔗 Condividi link app
+                    Annulla
                   </button>
                 </div>
-              )
-              : (
-                <div style={{ borderTop: '1px solid #e5e5e5', paddingTop: 16 }}>
-                  <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Aggiungi il tuo nome</p>
-                  <div className="field">
-                    <label>Nome e cognome</label>
-                    <input
-                      value={newName} onChange={e => setNewName(e.target.value)}
-                      placeholder="es. Mario Rossi" autoFocus
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Ruolo</label>
-                    <select value={newRole} onChange={e => setNewRole(e.target.value)}>
-                      <option value="coach">Allenatore</option>
-                      <option value="sostegno">Sostegno</option>
-                      <option value="admin">Amministratore</option>
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-primary btn-sm" onClick={addProfile} disabled={!newName.trim() || saving}>
-                      {saving ? 'Salvataggio...' : 'Accedi'}
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setShowAdd(false)}>Annulla</button>
-                  </div>
-                </div>
-              )
-            }
+              </div>
+            )}
           </>
         }
       </div>
