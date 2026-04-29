@@ -17,10 +17,9 @@ export default function AdminPage() {
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e5e5', marginBottom: 20 }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', border: 'none', background: 'transparent',
-            color: tab === t.id ? '#1a1a1a' : '#888',
-            borderBottom: tab === t.id ? '2px solid #1a1a1a' : '2px solid transparent',
-            marginBottom: -1,
+            padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', border: 'none',
+            background: 'transparent', color: tab === t.id ? '#1a1a1a' : '#888',
+            borderBottom: tab === t.id ? '2px solid #1a1a1a' : '2px solid transparent', marginBottom: -1,
           }}>{t.label}</button>
         ))}
       </div>
@@ -34,41 +33,17 @@ export default function AdminPage() {
 
 /* ============================================================
    SELETTORE CATEGORIE + GRUPPI
-   Componente riutilizzabile per scegliere categorie singole
-   o gruppi di categorie, con il minimo allenatori per ognuno
    ============================================================ */
-function CategoryGroupSelector({ selected, setSelected, mins, setMins }) {
+function CategoryGroupSelector({ selected, onToggle, mins, onMinChange }) {
   const [allCats, setAllCats] = useState([])
   const [allGroups, setAllGroups] = useState([])
 
   useEffect(() => {
-    supabase.from('categories').select('id,name').then(({ data }) => setAllCats(data || []))
-    supabase.from('category_groups').select(`id, name, category_group_members(category:categories(id,name))`).then(({ data }) => setAllGroups(data || []))
+    supabase.from('categories').select('id,name').order('name').then(({ data }) => setAllCats(data || []))
+    supabase.from('category_groups')
+      .select('id, name, category_group_members(category:categories(id,name))')
+      .then(({ data }) => setAllGroups(data || []))
   }, [])
-
-  function toggleItem(key) {
-    setSelected(prev => {
-      const exists = prev.find(x => x.key === key)
-      if (exists) return prev.filter(x => x.key !== key)
-      const isCat = key.startsWith('cat_')
-      const id = parseInt(key.split('_')[1])
-      return [...prev, { key, type: isCat ? 'category' : 'group', id }]
-    })
-    if (!mins[key]) setMins(m => ({ ...m, [key]: 2 }))
-  }
-
-  function isSelected(key) { return !!selected.find(x => x.key === key) }
-
-  function labelFor(key) {
-    if (key.startsWith('cat_')) {
-      const id = parseInt(key.split('_')[1])
-      return allCats.find(c => c.id === id)?.name || key
-    } else {
-      const id = parseInt(key.split('_')[1])
-      const g = allGroups.find(g => g.id === id)
-      return g?.name || g?.category_group_members?.map(m => m.category?.name).join('+') || key
-    }
-  }
 
   return (
     <div>
@@ -76,47 +51,58 @@ function CategoryGroupSelector({ selected, setSelected, mins, setMins }) {
         <div className="field">
           <label>Categorie singole</label>
           <div className="chip-group">
-            {allCats.map(c => (
-              <div
-                key={`cat_${c.id}`}
-                className={`chip ${isSelected(`cat_${c.id}`) ? 'selected' : ''}`}
-                onClick={() => toggleItem(`cat_${c.id}`)}
-              >
-                {c.name}
-              </div>
-            ))}
+            {allCats.map(c => {
+              const key = `cat_${c.id}`
+              const isSel = !!selected.find(s => s.key === key)
+              return (
+                <div
+                  key={key}
+                  className={`chip${isSel ? ' selected' : ''}`}
+                  onClick={() => onToggle({ key, type: 'category', id: c.id, name: c.name })}
+                >
+                  {c.name}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
+
       {allGroups.length > 0 && (
         <div className="field">
           <label>Gruppi di categorie</label>
           <div className="chip-group">
-            {allGroups.map(g => (
-              <div
-                key={`grp_${g.id}`}
-                className={`chip ${isSelected(`grp_${g.id}`) ? 'selected' : ''}`}
-                onClick={() => toggleItem(`grp_${g.id}`)}
-              >
-                {g.name || g.category_group_members?.map(m => m.category?.name).join('+')}
-              </div>
-            ))}
+            {allGroups.map(g => {
+              const key = `grp_${g.id}`
+              const isSel = !!selected.find(s => s.key === key)
+              const label = g.name || g.category_group_members?.map(m => m.category?.name).join('+')
+              return (
+                <div
+                  key={key}
+                  className={`chip${isSel ? ' selected' : ''}`}
+                  onClick={() => onToggle({ key, type: 'group', id: g.id, groupName: label })}
+                >
+                  {label}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
+
       {selected.length > 0 && (
         <div className="field">
           <label>Minimi per categoria/gruppo</label>
           {selected.map(s => (
             <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, minWidth: 60 }}>{labelFor(s.key)}</span>
+              <span style={{ fontSize: 12, minWidth: 80 }}>{s.type === 'category' ? s.name : s.groupName}</span>
               <input
                 type="number" min={1} max={10}
-                value={mins[s.key] || 2}
-                onChange={e => setMins(m => ({ ...m, [s.key]: +e.target.value }))}
+                value={mins[s.key] ?? 2}
+                onChange={e => onMinChange(s.key, +e.target.value)}
                 style={{ width: 56, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12 }}
               />
-              <span style={{ fontSize: 11, color: '#aaa' }}>min.</span>
+              <span style={{ fontSize: 11, color: '#aaa' }}>min. allenatori</span>
             </div>
           ))}
         </div>
@@ -126,23 +112,24 @@ function CategoryGroupSelector({ selected, setSelected, mins, setMins }) {
 }
 
 /* ============================================================
-   ALLENAMENTI RICORRENTI
+   ALLENAMENTI
    ============================================================ */
 function TrainingsTab() {
   const [items, setItems] = useState([])
   const [showForm, setShowForm] = useState(false)
-  const [dow, setDow] = useState(1)
+  const [errors, setErrors] = useState({})
+  const [title, setTitle] = useState('')
   const [startTime, setStartTime] = useState('17:00')
   const [endTime, setEndTime] = useState('')
-  const [title, setTitle] = useState('')
+  const [isRecurring, setIsRecurring] = useState(true)
+  const [dow, setDow] = useState(1)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [singleDate, setSingleDate] = useState('')
   const [selected, setSelected] = useState([])
   const [mins, setMins] = useState({})
   const [saving, setSaving] = useState(false)
-
-  // Stato per eliminazione singola istanza
-  const [showException, setShowException] = useState(null) // training id
+  const [showException, setShowException] = useState(null)
   const [exceptionDate, setExceptionDate] = useState('')
   const [savingException, setSavingException] = useState(false)
 
@@ -153,10 +140,7 @@ function TrainingsTab() {
       .from('recurring_trainings')
       .select(`
         *,
-        recurring_training_categories(
-          min_coaches,
-          category_id,
-          group_id,
+        recurring_training_categories(min_coaches, category_id, group_id,
           category:categories(id,name),
           group:category_groups(id,name,category_group_members(category:categories(id,name)))
         ),
@@ -167,55 +151,71 @@ function TrainingsTab() {
     setItems(data || [])
   }
 
+  function handleToggle(item) {
+    setSelected(prev => {
+      const exists = prev.find(s => s.key === item.key)
+      if (exists) return prev.filter(s => s.key !== item.key)
+      return [...prev, item]
+    })
+    setMins(m => ({ ...m, [item.key]: m[item.key] ?? 2 }))
+    setErrors(e => ({ ...e, selected: undefined }))
+  }
+
+  function validate() {
+    const e = {}
+    if (!startTime) e.startTime = 'Orario di inizio obbligatorio'
+    if (selected.length === 0) e.selected = 'Seleziona almeno una categoria o gruppo'
+    if (isRecurring) { if (!dow) e.dow = 'Seleziona un giorno' }
+    else { if (!singleDate) e.singleDate = 'Seleziona una data' }
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
   function resetForm() {
-    setShowForm(false); setDow(1); setStartTime('17:00'); setEndTime(''); setTitle('')
-    setStartDate(''); setEndDate(''); setSelected([]); setMins({})
+    setShowForm(false); setTitle(''); setStartTime('17:00'); setEndTime('')
+    setIsRecurring(true); setDow(1); setStartDate(''); setEndDate('')
+    setSingleDate(''); setSelected([]); setMins({}); setErrors({})
   }
 
   async function save() {
-    if (!selected.length) return
+    if (!validate()) return
     setSaving(true)
-    const { data: tr } = await supabase.from('recurring_trainings').insert({
-      day_of_week: dow,
+    const { data: tr, error } = await supabase.from('recurring_trainings').insert({
+      day_of_week: isRecurring ? dow : (new Date(singleDate + 'T00:00:00').getDay() || 7),
       start_time: startTime,
       end_time: endTime || null,
       title: title.trim() || null,
-      start_date: startDate || null,
-      end_date: endDate || null,
+      start_date: isRecurring ? (startDate || null) : singleDate,
+      end_date: isRecurring ? (endDate || null) : singleDate,
     }).select().single()
 
-    const rows = selected.map(s => ({
-      training_id: tr.id,
-      category_id: s.type === 'category' ? s.id : null,
-      group_id: s.type === 'group' ? s.id : null,
-      min_coaches: mins[s.key] || 2,
-    }))
-    await supabase.from('recurring_training_categories').insert(rows)
+    if (error) { setSaving(false); alert('Errore nel salvataggio: ' + error.message); return }
+
+    for (const s of selected) {
+      await supabase.from('recurring_training_categories').insert({
+        training_id: tr.id,
+        category_id: s.type === 'category' ? s.id : null,
+        group_id: s.type === 'group' ? s.id : null,
+        min_coaches: mins[s.key] ?? 2,
+      })
+    }
     setSaving(false); resetForm(); load()
   }
 
   async function remove(id) {
-    if (!window.confirm('Rimuovere questo allenamento ricorrente?')) return
-    await supabase.from('recurring_trainings').update({ active: false }).eq('id', id)
-    load()
+    if (!window.confirm('Rimuovere questo allenamento?')) return
+    await supabase.from('recurring_trainings').update({ active: false }).eq('id', id); load()
   }
 
   async function addException(trainingId) {
     if (!exceptionDate) return
     setSavingException(true)
-    await supabase.from('training_instance_exceptions').insert({
-      training_id: trainingId,
-      instance_date: exceptionDate,
-    })
-    setSavingException(false)
-    setShowException(null)
-    setExceptionDate('')
-    load()
+    await supabase.from('training_instance_exceptions').insert({ training_id: trainingId, instance_date: exceptionDate })
+    setSavingException(false); setShowException(null); setExceptionDate(''); load()
   }
 
   async function removeException(id) {
-    await supabase.from('training_instance_exceptions').delete().eq('id', id)
-    load()
+    await supabase.from('training_instance_exceptions').delete().eq('id', id); load()
   }
 
   function slotLabel(rtc) {
@@ -224,19 +224,23 @@ function TrainingsTab() {
     return '?'
   }
 
+  function trainingLabel(t) {
+    if (t.start_date && t.start_date === t.end_date)
+      return `${t.start_date} — ${t.start_time}${t.end_time ? ` → ${t.end_time}` : ''}`
+    return `${DAYS[t.day_of_week]} — ${t.start_time}${t.end_time ? ` → ${t.end_time}` : ''}`
+  }
+
   return (
     <div>
-      <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>Allenamenti ricorrenti</div>
+      <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>Allenamenti</div>
 
       {items.map(t => (
         <div className="card" key={t.id} style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               {t.title && <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{t.title}</div>}
-              <div style={{ fontWeight: 500, fontSize: 13 }}>
-                {DAYS[t.day_of_week]} — {t.start_time}{t.end_time ? ` → ${t.end_time}` : ''}
-              </div>
-              {(t.start_date || t.end_date) && (
+              <div style={{ fontWeight: 500, fontSize: 13 }}>{trainingLabel(t)}</div>
+              {t.start_date && t.start_date !== t.end_date && (
                 <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
                   {t.start_date && `Dal ${t.start_date}`}{t.end_date && ` al ${t.end_date}`}
                 </div>
@@ -250,49 +254,34 @@ function TrainingsTab() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => { setShowException(showException === t.id ? null : t.id); setExceptionDate('') }}
-              >
+              <button className="btn btn-secondary btn-sm" onClick={() => { setShowException(showException === t.id ? null : t.id); setExceptionDate('') }}>
                 🚫 Salta data
               </button>
               <button className="btn btn-danger btn-sm" onClick={() => remove(t.id)}>Rimuovi</button>
             </div>
           </div>
 
-          {/* Eccezioni esistenti */}
           {t.training_instance_exceptions?.length > 0 && (
             <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f0f0f0' }}>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>Date saltate:</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {t.training_instance_exceptions.map(ex => (
-                  <span key={ex.id} style={{
-                    fontSize: 11, background: '#fee2e2', color: '#991b1b',
-                    padding: '2px 8px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 4
-                  }}>
+                  <span key={ex.id} style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {ex.instance_date}
-                    <span
-                      style={{ cursor: 'pointer', fontWeight: 700 }}
-                      onClick={() => removeException(ex.id)}
-                    >×</span>
+                    <span style={{ cursor: 'pointer', fontWeight: 700 }} onClick={() => removeException(ex.id)}>×</span>
                   </span>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Form aggiunta eccezione */}
           {showException === t.id && (
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
               <div className="field" style={{ margin: 0, flex: 1 }}>
                 <label>Data da saltare</label>
                 <input type="date" value={exceptionDate} onChange={e => setExceptionDate(e.target.value)} />
               </div>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => addException(t.id)}
-                disabled={!exceptionDate || savingException}
-              >
+              <button className="btn btn-primary btn-sm" onClick={() => addException(t.id)} disabled={!exceptionDate || savingException}>
                 {savingException ? 'Salvataggio...' : 'Aggiungi'}
               </button>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowException(null)}>Annulla</button>
@@ -302,57 +291,76 @@ function TrainingsTab() {
       ))}
 
       {!showForm && (
-        <button
-          className="btn btn-secondary btn-sm"
-          style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
-          onClick={() => setShowForm(true)}
-        >
+        <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => setShowForm(true)}>
           + Nuovo allenamento
         </button>
       )}
 
       {showForm && (
         <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ fontWeight: 500, marginBottom: 12 }}>Nuovo allenamento ricorrente</div>
+          <div style={{ fontWeight: 500, marginBottom: 16 }}>Nuovo allenamento</div>
 
           <div className="field">
             <label>Titolo (opzionale)</label>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="es. Allenamento portieri" />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="field">
-              <label>Giorno</label>
-              <select value={dow} onChange={e => setDow(+e.target.value)}>
-                {[1,2,3,4,5,6,7].map(d => <option key={d} value={d}>{DAYS[d]}</option>)}
-              </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Ora inizio {errors.startTime && <span style={{ color: '#ef4444' }}>*</span>}</label>
+              <input type="time" value={startTime} onChange={e => { setStartTime(e.target.value); setErrors(er => ({ ...er, startTime: undefined })) }} />
+              {errors.startTime && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>{errors.startTime}</div>}
             </div>
-            <div className="field">
-              <label>Ora inizio</label>
-              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Data inizio (opzionale)</label>
-              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Data fine (opzionale)</label>
-              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <div className="field" style={{ margin: 0 }}>
+              <label>Ora fine (opzionale)</label>
+              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
             </div>
           </div>
 
           <div className="field">
-            <label>Ora fine (opzionale)</label>
-            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+            <label>Tipo</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div className={`chip${isRecurring ? ' selected' : ''}`} onClick={() => setIsRecurring(true)}>🔁 Ricorrente</div>
+              <div className={`chip${!isRecurring ? ' selected' : ''}`} onClick={() => setIsRecurring(false)}>📅 Data singola</div>
+            </div>
           </div>
 
+          {isRecurring ? (
+            <>
+              <div className="field">
+                <label>Giorno della settimana</label>
+                <select value={dow} onChange={e => setDow(+e.target.value)}>
+                  {[1,2,3,4,5,6,7].map(d => <option key={d} value={d}>{DAYS[d]}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Dal (opzionale)</label>
+                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Al (opzionale)</label>
+                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="field">
+              <label>Data {errors.singleDate && <span style={{ color: '#ef4444' }}>— {errors.singleDate}</span>}</label>
+              <input type="date" value={singleDate} onChange={e => { setSingleDate(e.target.value); setErrors(er => ({ ...er, singleDate: undefined })) }} />
+            </div>
+          )}
+
           <CategoryGroupSelector
-            selected={selected} setSelected={setSelected}
-            mins={mins} setMins={setMins}
+            selected={selected}
+            onToggle={handleToggle}
+            mins={mins}
+            onMinChange={(key, val) => setMins(m => ({ ...m, [key]: val }))}
           />
+          {errors.selected && <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 8 }}>{errors.selected}</div>}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-primary btn-sm" onClick={save} disabled={!selected.length || saving}>
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
               {saving ? 'Salvataggio...' : 'Salva'}
             </button>
             <button className="btn btn-secondary btn-sm" onClick={resetForm}>Annulla</button>
@@ -369,6 +377,7 @@ function TrainingsTab() {
 function ActivitiesTab() {
   const [items, setItems] = useState([])
   const [showForm, setShowForm] = useState(false)
+  const [errors, setErrors] = useState({})
   const [type, setType] = useState('festival')
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
@@ -385,65 +394,72 @@ function ActivitiesTab() {
   async function load() {
     const { data } = await supabase
       .from('activities')
-      .select(`
-        *,
-        activity_categories(
-          min_coaches,
-          category_id,
-          group_id,
-          category:categories(id,name),
-          group:category_groups(id,name,category_group_members(category:categories(id,name)))
-        )
-      `)
+      .select(`*, activity_categories(min_coaches, category_id, group_id,
+        category:categories(id,name),
+        group:category_groups(id,name,category_group_members(category:categories(id,name)))
+      )`)
       .order('date')
     setItems(data || [])
+  }
+
+  function handleToggle(item) {
+    setSelected(prev => {
+      const exists = prev.find(s => s.key === item.key)
+      if (exists) return prev.filter(s => s.key !== item.key)
+      return [...prev, item]
+    })
+    setMins(m => ({ ...m, [item.key]: m[item.key] ?? 2 }))
+    setErrors(e => ({ ...e, selected: undefined }))
+  }
+
+  function validate() {
+    const e = {}
+    if (!date) e.date = 'Data obbligatoria'
+    if (!startTime) e.startTime = 'Orario obbligatorio'
+    if (type === 'other' && !title.trim()) e.title = 'Il titolo è obbligatorio'
+    if (selected.length === 0) e.selected = 'Seleziona almeno una categoria o gruppo'
+    setErrors(e)
+    return Object.keys(e).length === 0
   }
 
   function resetForm() {
     setShowForm(false); setType('festival'); setTitle(''); setDate('')
     setStartTime('09:00'); setEndTime(''); setLocation(''); setHostingTeam('')
-    setSelected([]); setMins({})
+    setSelected([]); setMins({}); setErrors({})
   }
 
   async function save() {
-    if (!date || !selected.length) return
-    if (type === 'other' && !title.trim()) return
+    if (!validate()) return
     setSaving(true)
-    const { data: act } = await supabase.from('activities').insert({
-      type,
-      title: title.trim() || null,
-      date,
-      start_time: startTime,
-      end_time: endTime || null,
+    const { data: act, error } = await supabase.from('activities').insert({
+      type, title: title.trim() || null, date,
+      start_time: startTime, end_time: endTime || null,
       location: location.trim() || null,
       hosting_team: hostingTeam.trim() || null,
     }).select().single()
 
-    const rows = selected.map(s => ({
-      activity_id: act.id,
-      category_id: s.type === 'category' ? s.id : null,
-      group_id: s.type === 'group' ? s.id : null,
-      min_coaches: mins[s.key] || 2,
-    }))
-    await supabase.from('activity_categories').insert(rows)
+    if (error) { setSaving(false); alert('Errore: ' + error.message); return }
+
+    for (const s of selected) {
+      await supabase.from('activity_categories').insert({
+        activity_id: act.id,
+        category_id: s.type === 'category' ? s.id : null,
+        group_id: s.type === 'group' ? s.id : null,
+        min_coaches: mins[s.key] ?? 2,
+      })
+    }
     setSaving(false); resetForm(); load()
   }
 
   async function remove(id) {
     if (!window.confirm('Rimuovere questa attività?')) return
-    await supabase.from('activities').delete().eq('id', id)
-    load()
+    await supabase.from('activities').delete().eq('id', id); load()
   }
 
   function slotLabel(ac) {
     if (ac.category) return ac.category.name
     if (ac.group) return ac.group.name || ac.group.category_group_members?.map(m => m.category?.name).join('+')
     return '?'
-  }
-
-  function activityLabel(act) {
-    if (act.type === 'festival') return act.title || 'Festival'
-    return act.title
   }
 
   return (
@@ -454,7 +470,7 @@ function ActivitiesTab() {
         <div className="card" key={act.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
           <div>
             <div style={{ fontWeight: 500, fontSize: 13 }}>
-              {activityLabel(act)}{' '}
+              {act.title || 'Festival'}{' '}
               <span className={`badge ${act.type === 'festival' ? 'badge-purple' : 'badge-coach'}`}>
                 {act.type === 'festival' ? 'Festival' : 'Attività'}
               </span>
@@ -463,7 +479,7 @@ function ActivitiesTab() {
               {act.date} — {act.start_time}{act.end_time ? ` → ${act.end_time}` : ''}
             </div>
             {act.location && <div style={{ fontSize: 12, color: '#888' }}>📍 {act.location}</div>}
-            {act.hosting_team && <div style={{ fontSize: 12, color: '#888' }}>🏠 Ospitante: {act.hosting_team}</div>}
+            {act.hosting_team && <div style={{ fontSize: 12, color: '#888' }}>🏠 {act.hosting_team}</div>}
             <div style={{ marginTop: 4 }}>
               {act.activity_categories?.map((c, i) => (
                 <span key={i} className="badge badge-gray" style={{ marginRight: 4 }}>
@@ -477,42 +493,41 @@ function ActivitiesTab() {
       ))}
 
       {!showForm && (
-        <button
-          className="btn btn-secondary btn-sm"
-          style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
-          onClick={() => setShowForm(true)}
-        >
+        <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => setShowForm(true)}>
           + Nuova attività
         </button>
       )}
 
       {showForm && (
         <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ fontWeight: 500, marginBottom: 12 }}>Nuova attività</div>
+          <div style={{ fontWeight: 500, marginBottom: 16 }}>Nuova attività</div>
 
           <div className="field">
             <label>Tipo</label>
-            <select value={type} onChange={e => setType(e.target.value)}>
-              <option value="festival">Festival</option>
-              <option value="other">Altra attività</option>
-            </select>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div className={`chip${type === 'festival' ? ' selected' : ''}`} onClick={() => setType('festival')}>🏆 Festival</div>
+              <div className={`chip${type === 'other' ? ' selected' : ''}`} onClick={() => setType('other')}>📋 Altra attività</div>
+            </div>
           </div>
 
           <div className="field">
-            <label>{type === 'festival' ? 'Nome (opzionale)' : 'Titolo *'}</label>
+            <label>
+              {type === 'festival' ? 'Nome (opzionale)' : 'Titolo *'}
+              {errors.title && <span style={{ color: '#ef4444', marginLeft: 4, fontSize: 11 }}>{errors.title}</span>}
+            </label>
             <input
               value={title}
-              onChange={e => setTitle(e.target.value)}
+              onChange={e => { setTitle(e.target.value); setErrors(er => ({ ...er, title: undefined })) }}
               placeholder={type === 'festival' ? 'es. Torneo primavera' : 'es. Amichevole'}
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="field">
-              <label>Data</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Data {errors.date && <span style={{ color: '#ef4444', fontSize: 11 }}>— {errors.date}</span>}</label>
+              <input type="date" value={date} onChange={e => { setDate(e.target.value); setErrors(er => ({ ...er, date: undefined })) }} />
             </div>
-            <div className="field">
+            <div className="field" style={{ margin: 0 }}>
               <label>Ora inizio</label>
               <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
             </div>
@@ -531,21 +546,20 @@ function ActivitiesTab() {
           {type === 'festival' && (
             <div className="field">
               <label>Squadra ospitante (opzionale)</label>
-              <input value={hostingTeam} onChange={e => setHostingTeam(e.target.value)} placeholder="es. ASD Juventus" />
+              <input value={hostingTeam} onChange={e => setHostingTeam(e.target.value)} placeholder="es. ASD Rossi" />
             </div>
           )}
 
           <CategoryGroupSelector
-            selected={selected} setSelected={setSelected}
-            mins={mins} setMins={setMins}
+            selected={selected}
+            onToggle={handleToggle}
+            mins={mins}
+            onMinChange={(key, val) => setMins(m => ({ ...m, [key]: val }))}
           />
+          {errors.selected && <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 8 }}>{errors.selected}</div>}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={save}
-              disabled={!date || !selected.length || (type === 'other' && !title.trim()) || saving}
-            >
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
               {saving ? 'Salvataggio...' : 'Salva'}
             </button>
             <button className="btn btn-secondary btn-sm" onClick={resetForm}>Annulla</button>
@@ -557,7 +571,7 @@ function ActivitiesTab() {
 }
 
 /* ============================================================
-   GRUPPI CATEGORIE (invariato)
+   GRUPPI CATEGORIE
    ============================================================ */
 function GroupsTab() {
   const [items, setItems] = useState([])
@@ -566,34 +580,41 @@ function GroupsTab() {
   const [allCats, setAllCats] = useState([])
   const [selCats, setSelCats] = useState([])
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => { load() }, [])
 
   async function load() {
     const { data: groups } = await supabase.from('category_groups').select(`*, category_group_members(category:categories(id,name))`)
-    const { data: cats } = await supabase.from('categories').select('id,name')
+    const { data: cats } = await supabase.from('categories').select('id,name').order('name')
     setItems(groups || [])
     setAllCats(cats || [])
   }
 
+  function toggleCat(id) {
+    setSelCats(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+    setError('')
+  }
+
   async function save() {
-    if (selCats.length < 2) return
+    if (selCats.length < 2) { setError('Seleziona almeno 2 categorie'); return }
     setSaving(true)
-    const { data: g } = await supabase.from('category_groups').insert({ name: groupName || null }).select().single()
-    await supabase.from('category_group_members').insert(
-      selCats.map(id => ({ group_id: g.id, category_id: id }))
-    )
-    setSaving(false); setShowForm(false); setGroupName(''); setSelCats([]); load()
+    const { data: g } = await supabase.from('category_groups').insert({ name: groupName.trim() || null }).select().single()
+    for (const catId of selCats) {
+      await supabase.from('category_group_members').insert({ group_id: g.id, category_id: catId })
+    }
+    setSaving(false); setShowForm(false); setGroupName(''); setSelCats([]); setError(''); load()
   }
 
   async function remove(id) {
+    if (!window.confirm('Rimuovere questo gruppo?')) return
     await supabase.from('category_groups').delete().eq('id', id); load()
   }
 
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Gruppi di categorie</div>
-      <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Categorie raggruppate vengono allenate insieme e condividono la copertura jolly.</p>
+      <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Un gruppo è un sottoinsieme di categorie che si allenano insieme e condividono la copertura jolly.</p>
 
       {items.map(g => (
         <div className="card" key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -630,19 +651,20 @@ function GroupsTab() {
               {allCats.map(c => (
                 <div
                   key={c.id}
-                  className={`chip ${selCats.includes(c.id) ? 'selected' : ''}`}
-                  onClick={() => setSelCats(p => p.includes(c.id) ? p.filter(x => x !== c.id) : [...p, c.id])}
+                  className={`chip${selCats.includes(c.id) ? ' selected' : ''}`}
+                  onClick={() => toggleCat(c.id)}
                 >
                   {c.name}
                 </div>
               ))}
             </div>
+            {error && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>{error}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-primary btn-sm" onClick={save} disabled={selCats.length < 2 || saving}>
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
               {saving ? 'Salvataggio...' : 'Salva'}
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowForm(false)}>Annulla</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setShowForm(false); setSelCats([]); setError('') }}>Annulla</button>
           </div>
         </div>
       )}
@@ -659,8 +681,6 @@ function CoachesTab() {
   const [fullName, setFullName] = useState('')
   const [role, setRole] = useState('coach')
   const [saving, setSaving] = useState(false)
-
-  // PIN admin
   const [showPinForm, setShowPinForm] = useState(false)
   const [currentPin, setCurrentPin] = useState('')
   const [newPin, setNewPin] = useState('')
@@ -678,14 +698,12 @@ function CoachesTab() {
   async function toggleRole(item) {
     const roles = ['coach', 'sostegno', 'admin']
     const next = roles[(roles.indexOf(item.role) + 1) % roles.length]
-    await supabase.from('profiles').update({ role: next }).eq('id', item.id)
-    load()
+    await supabase.from('profiles').update({ role: next }).eq('id', item.id); load()
   }
 
   async function removeProfile(id) {
     if (!window.confirm('Rimuovere questo utente?')) return
-    await supabase.from('profiles').delete().eq('id', id)
-    load()
+    await supabase.from('profiles').delete().eq('id', id); load()
   }
 
   async function addProfile() {
@@ -698,35 +716,23 @@ function CoachesTab() {
   function copyUrl() {
     navigator.clipboard.writeText(window.location.origin)
       .then(() => alert('Link copiato negli appunti!'))
-      .catch(() => alert('Impossibile copiare automaticamente. URL: ' + window.location.origin))
+      .catch(() => alert('URL: ' + window.location.origin))
   }
 
   async function savePin() {
     if (!newPin || newPin !== confirmPin) { setPinMsg('I PIN non coincidono'); return }
     if (newPin.length < 4) { setPinMsg('Il PIN deve essere di almeno 4 caratteri'); return }
-    setSavingPin(true)
-    setPinMsg('')
-    // Verifica PIN corrente
+    setSavingPin(true); setPinMsg('')
     const { data } = await supabase.from('app_settings').select('value').eq('key', 'admin_pin').single()
     if (data?.value !== currentPin) { setPinMsg('PIN attuale non corretto'); setSavingPin(false); return }
     await supabase.from('app_settings').update({ value: newPin }).eq('key', 'admin_pin')
-    setPinMsg('PIN aggiornato con successo!')
-    setSavingPin(false)
+    setPinMsg('PIN aggiornato!'); setSavingPin(false)
     setCurrentPin(''); setNewPin(''); setConfirmPin('')
     setTimeout(() => { setShowPinForm(false); setPinMsg('') }, 1500)
   }
 
-  const roleLabel = (role) => {
-    if (role === 'admin') return 'Admin'
-    if (role === 'sostegno') return 'Sostegno'
-    return 'Allenatore'
-  }
-
-  const roleBadgeClass = (role) => {
-    if (role === 'admin') return 'badge-admin'
-    if (role === 'sostegno') return 'badge-sostegno'
-    return 'badge-coach'
-  }
+  const roleLabel = r => r === 'admin' ? 'Admin' : r === 'sostegno' ? 'Sostegno' : 'Allenatore'
+  const roleBadge = r => r === 'admin' ? 'badge-admin' : r === 'sostegno' ? 'badge-sostegno' : 'badge-coach'
 
   return (
     <div>
@@ -734,47 +740,27 @@ function CoachesTab() {
 
       {items.map(c => (
         <div className="card" key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div>
-            <div style={{ fontWeight: 500, fontSize: 13 }}>
-              {c.full_name}{' '}
-              <span className={`badge ${roleBadgeClass(c.role)}`}>{roleLabel(c.role)}</span>
-            </div>
+          <div style={{ fontWeight: 500, fontSize: 13 }}>
+            {c.full_name}{' '}
+            <span className={`badge ${roleBadge(c.role)}`}>{roleLabel(c.role)}</span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => toggleRole(c)}>
-              Cambia ruolo
-            </button>
-            <button className="btn btn-danger btn-sm" onClick={() => removeProfile(c.id)}>
-              Rimuovi
-            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => toggleRole(c)}>Cambia ruolo</button>
+            <button className="btn btn-danger btn-sm" onClick={() => removeProfile(c.id)}>Rimuovi</button>
           </div>
         </div>
       ))}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
         {!showForm && (
-          <button
-            className="btn btn-secondary btn-sm"
-            style={{ width: '100%', justifyContent: 'center' }}
-            onClick={() => setShowForm(true)}
-          >
+          <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setShowForm(true)}>
             + Aggiungi utente
           </button>
         )}
-
-        <button
-          className="btn btn-secondary btn-sm"
-          style={{ width: '100%', justifyContent: 'center' }}
-          onClick={copyUrl}
-        >
+        <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={copyUrl}>
           🔗 Condividi link app
         </button>
-
-        <button
-          className="btn btn-secondary btn-sm"
-          style={{ width: '100%', justifyContent: 'center' }}
-          onClick={() => setShowPinForm(!showPinForm)}
-        >
+        <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setShowPinForm(!showPinForm)}>
           🔑 Modifica PIN amministratore
         </button>
       </div>
@@ -806,23 +792,10 @@ function CoachesTab() {
       {showPinForm && (
         <div className="card" style={{ marginTop: 12 }}>
           <div style={{ fontWeight: 500, marginBottom: 12 }}>Modifica PIN amministratore</div>
-          <div className="field">
-            <label>PIN attuale</label>
-            <input type="password" value={currentPin} onChange={e => setCurrentPin(e.target.value)} placeholder="••••" />
-          </div>
-          <div className="field">
-            <label>Nuovo PIN</label>
-            <input type="password" value={newPin} onChange={e => setNewPin(e.target.value)} placeholder="••••" />
-          </div>
-          <div className="field">
-            <label>Conferma nuovo PIN</label>
-            <input type="password" value={confirmPin} onChange={e => setConfirmPin(e.target.value)} placeholder="••••" />
-          </div>
-          {pinMsg && (
-            <p style={{ fontSize: 12, color: pinMsg.includes('successo') ? '#16a34a' : '#ef4444', marginBottom: 8 }}>
-              {pinMsg}
-            </p>
-          )}
+          <div className="field"><label>PIN attuale</label><input type="password" value={currentPin} onChange={e => setCurrentPin(e.target.value)} placeholder="••••" /></div>
+          <div className="field"><label>Nuovo PIN</label><input type="password" value={newPin} onChange={e => setNewPin(e.target.value)} placeholder="••••" /></div>
+          <div className="field"><label>Conferma nuovo PIN</label><input type="password" value={confirmPin} onChange={e => setConfirmPin(e.target.value)} placeholder="••••" /></div>
+          {pinMsg && <p style={{ fontSize: 12, color: pinMsg.includes('aggiornato') ? '#16a34a' : '#ef4444', marginBottom: 8 }}>{pinMsg}</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-primary btn-sm" onClick={savePin} disabled={!currentPin || !newPin || !confirmPin || savingPin}>
               {savingPin ? 'Salvataggio...' : 'Salva PIN'}
