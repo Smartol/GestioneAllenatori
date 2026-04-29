@@ -11,7 +11,8 @@ export default function EventModal({ event, attendances, onClose, onRefetch }) {
   const myAttendance = attendances.find(a => a.coach_id === profile?.id)
 
   const title = event.title || 'Allenamento'
-  const dateObj = event.date ? new Date(event.date + 'T00:00:00') : new Date(event.dateStr + 'T00:00:00')
+  const rawDate = event.dateStr || event.date || ''
+  const dateObj = rawDate ? new Date(rawDate + 'T00:00:00') : new Date()
   const subtitle = `${event.start_time || ''} · ${format(dateObj, 'EEEE d MMMM yyyy', { locale: it })}`
 
   return (
