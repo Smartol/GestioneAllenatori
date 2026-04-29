@@ -102,6 +102,7 @@ input, select, textarea { font-family: inherit; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
 .badge-admin { background: #dbeafe; color: #1d4ed8; }
 .badge-coach { background: #dcfce7; color: #15803d; }
+.badge-sostegno { background: #fef3c7; color: #92400e; }
 .badge-green { background: #d4edda; color: #2e7d4f; }
 .badge-orange { background: #fde8c8; color: #b8610a; }
 .badge-red { background: #fcd5d5; color: #b91c1c; }
