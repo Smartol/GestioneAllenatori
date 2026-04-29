@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import AppShell from './components/AppShell'
 import CalendarPage from './pages/CalendarPage'
 import AdminPage from './pages/AdminPage'
+import BachecaPage from './pages/BachecaPage'
 
 function PrivateRoute({ children }) {
   const { profile, loading } = useAuth()
@@ -26,6 +27,7 @@ export default function App() {
       <Route path="/" element={<PrivateRoute><AppShell /></PrivateRoute>}>
         <Route index element={<Navigate to="/calendario" replace />} />
         <Route path="calendario" element={<CalendarPage />} />
+        <Route path="bacheca" element={<BachecaPage />} />
         <Route path="admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
