@@ -14,7 +14,7 @@ function timeToMinutes(t) {
 }
 
 // Pixel per minuto nella vista settimana
-const PX_PER_MIN = 0.8
+const PX_PER_MIN = 1.0
 const DAY_START = 8 * 60  // 14:00
 const DAY_END   = 21 * 60  // 21:00
 const TOTAL_PX  = (DAY_END - DAY_START) * PX_PER_MIN
@@ -136,7 +136,7 @@ export default function CalendarPage() {
 }
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
-const HOUR_LABELS = ['08:00', '10:00', '12:00', '14:00', '16:00', '17:30', '19:00', '20:00', '21:00']
+const HOUR_LABELS = ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '21:00']
 
 function WeekView({ currentDate, getEventsForDay, onEventClick }) {
   const ws = startOfWeek(currentDate, { weekStartsOn: 1 })
@@ -164,24 +164,18 @@ function WeekView({ currentDate, getEventsForDay, onEventClick }) {
           )
         })}
 
-        {/* Griglia oraria */}
+        {/* Colonna oraria */}
         <div style={{ position: 'relative', height: TOTAL_PX, borderRight: '1px solid #e5e5e5', background: '#f8f8f7' }}>
           {HOUR_LABELS.map((label, i) => (
             <div key={i} style={{
-              position: 'absolute', top: i * 60 * PX_PER_MIN - 6,
+              position: 'absolute',
+              top: i * 120 * PX_PER_MIN - 6,
               right: 4, fontSize: 9, color: '#bbb', lineHeight: 1,
             }}>{label}</div>
           ))}
-          {/* Linee orarie */}
-          {HOUR_LABELS.map((_, i) => (
-            <div key={i} style={{
-              position: 'absolute', top: i * 60 * PX_PER_MIN,
-              left: 0, right: 0, borderTop: '1px solid #eee',
-              width: 8, marginLeft: 'auto',
-            }} />
-          ))}
         </div>
 
+        {/* Colonne giorni */}
         {days.map((d, di) => {
           const evs = getEventsForDay(d)
           return (
@@ -189,11 +183,13 @@ function WeekView({ currentDate, getEventsForDay, onEventClick }) {
               position: 'relative', height: TOTAL_PX,
               borderRight: di < 6 ? '1px solid #e5e5e5' : 'none',
             }}>
-              {/* Linee orarie */}
+              {/* Linee orarie ogni 2h */}
               {HOUR_LABELS.map((_, i) => (
                 <div key={i} style={{
-                  position: 'absolute', top: i * 60 * PX_PER_MIN,
-                  left: 0, right: 0, borderTop: '1px solid #f0f0f0',
+                  position: 'absolute',
+                  top: i * 120 * PX_PER_MIN,
+                  left: 0, right: 0,
+                  borderTop: '1px solid #f0f0f0',
                 }} />
               ))}
 
@@ -201,7 +197,7 @@ function WeekView({ currentDate, getEventsForDay, onEventClick }) {
                 const startMin = timeToMinutes(ev.start_time) ?? (DAY_START + 60)
                 const endMin = ev.end_time
                   ? timeToMinutes(ev.end_time)
-                  : startMin + 90  // default 1h30
+                  : startMin + 90
                 const top = Math.max(0, (startMin - DAY_START) * PX_PER_MIN)
                 const height = Math.max(20, (endMin - startMin) * PX_PER_MIN)
                 const color = getCovColor(ev.coverage)
