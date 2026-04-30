@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { getCovColor } from '../hooks/useCalendarData'
 
-export default function EventModal({ event, attendances, onClose, onRefetch }) {
+export default function EventModal({ event, attendances, onClose, onRefetch, onDelete }) {
   const { profile, isAdmin } = useAuth()
   const [view, setView] = useState('main')
   const myAttendance = attendances.find(a => a.coach_id === profile?.id)
@@ -13,24 +13,78 @@ export default function EventModal({ event, attendances, onClose, onRefetch }) {
   const title = event.title || 'Allenamento'
   const rawDate = event.dateStr || event.date || ''
   const dateObj = rawDate ? new Date(rawDate + 'T00:00:00') : new Date()
-  const subtitle = `${event.start_time || ''} · ${format(dateObj, 'EEEE d MMMM yyyy', { locale: it })}`
+  const timeStr = event.start_time?.slice(0,5) || ''
+  const endTimeStr = event.end_time?.slice(0,5) || ''
+  const subtitle = `${timeStr}${endTimeStr ? ` → ${endTimeStr}` : ''} · ${format(dateObj, 'EEEE d MMMM yyyy', { locale: it })}`
+
+  async function handleDelete() {
+    if (event.eventType === 'training') {
+      if (!window.confirm('Eliminare solo questa data o tutta la ricorrenza?')) return
+      // Aggiunge un\'eccezione per questa data specifica
+      await supabase.from('training_instance_exceptions').insert({
+        training_id: event.id,
+        instance_date: event.dateStr,
+      })
+    } else {
+      if (!window.confirm('Eliminare questa attività?')) return
+      await supabase.from('activities').delete().eq('id', event.id)
+    }
+    onDelete()
+  }
+
+  async function handleDeleteAll() {
+    if (!window.confirm('Eliminare l\'intera ricorrenza?')) return
+    await supabase.from('recurring_trainings').update({ active: false }).eq('id', event.id)
+    onDelete()
+  }
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box">
         <div className="modal-head">
-          <div>
+          <div style={{ flex: 1 }}>
             <div className="modal-title">
               {title}
-              {event.eventType === 'activity' && event.type === 'festival' ? ' — Festival ★' : ''}
-              {event.eventType === 'activity' && event.type === 'other' ? ' — Attività' : ''}
+              {event.eventType === 'activity' && event.type === 'festival' ? ' ★ Festival' : ''}
+              {event.eventType === 'activity' && event.type === 'other' ? ' · Attività' : ''}
             </div>
             <div className="modal-sub">{subtitle}</div>
             {event.location && <div className="modal-sub">📍 {event.location}</div>}
-            {event.hosting_team && <div className="modal-sub">🏠 Ospitante: {event.hosting_team}</div>}
+            {event.hosting_team && <div className="modal-sub">🏠 {event.hosting_team}</div>}
           </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+            <button className="modal-close" onClick={onClose}>✕</button>
+            {isAdmin && (
+              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                {event.eventType === 'training' && (
+                  <>
+                    <button
+                      onClick={handleDelete}
+                      style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', cursor: 'pointer' }}
+                    >
+                      🚫 Salta data
+                    </button>
+                    <button
+                      onClick={handleDeleteAll}
+                      style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', cursor: 'pointer' }}
+                    >
+                      🗑 Elimina tutto
+                    </button>
+                  </>
+                )}
+                {event.eventType === 'activity' && (
+                  <button
+                    onClick={handleDelete}
+                    style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', cursor: 'pointer' }}
+                  >
+                    🗑 Elimina
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
         <div className="modal-body">
           {view === 'main' && (
             <MainView
@@ -63,7 +117,7 @@ function MainView({ event, attendances, myAttendance, isAdmin, onSetView }) {
   const colLabel = { green: 'Soddisfatta', orange: 'Con jolly / al limite', red: 'Insufficiente' }
 
   function slotAttendanceLabel(a) {
-    if (a.is_jolly) return 'Jolly'
+    if (a.is_jolly) return '⭐ Jolly'
     if (a.category?.name) return a.category.name
     if (a.group_id) return 'Gruppo'
     return '?'
@@ -78,9 +132,8 @@ function MainView({ event, attendances, myAttendance, isAdmin, onSetView }) {
 
   return (
     <>
-      {/* Copertura */}
       <div className="modal-section">
-        <div className="modal-section-title">Copertura per categoria/gruppo</div>
+        <div className="modal-section-title">Copertura</div>
         {Object.entries(event.coverage || {}).map(([label, d]) => {
           const col = getCovColor({ [label]: d })
           return (
@@ -92,30 +145,26 @@ function MainView({ event, attendances, myAttendance, isAdmin, onSetView }) {
         })}
         {myAttendance && (
           <div style={{ marginTop: 8 }}>
-            <span className="badge badge-green">Presenza confermata — {myPresenceLabel()}</span>
+            <span className="badge badge-green">✓ Presenza confermata — {myPresenceLabel()}</span>
           </div>
         )}
       </div>
 
-      {/* Presenti */}
       <div className="modal-section">
         <div className="modal-section-title">Allenatori presenti ({attendances.length})</div>
         {attendances.length === 0
           ? <p style={{ fontSize: 12, color: '#aaa' }}>Nessuna presenza dichiarata.</p>
           : attendances.map(a => (
-            <div key={a.id} style={{ fontSize: 12, padding: '3px 0', color: '#555' }}>
-              {a.coach?.full_name}
-              {' — '}
+            <div key={a.id} style={{ fontSize: 12, padding: '4px 0', color: '#555', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 500 }}>{a.coach?.full_name}</span>
               <span style={{ color: '#888' }}>{slotAttendanceLabel(a)}</span>
             </div>
           ))
         }
       </div>
 
-      {/* Note */}
       <NotesList event={event} />
 
-      {/* Azioni */}
       <div className="modal-actions">
         {!myAttendance && (
           <button className="btn btn-primary btn-sm" onClick={() => onSetView('presence')}>
@@ -149,13 +198,11 @@ function NotesList({ event }) {
       .from('notes')
       .select(`*, author:profiles(full_name), note_images(id, storage_path)`)
       .order('created_at')
-
     if (event.eventType === 'training') {
       query = query.eq('training_id', event.id).eq('instance_date', event.dateStr)
     } else {
       query = query.eq('activity_id', event.id)
     }
-
     const { data } = await query
     setNotes(data || [])
     setShown(true)
@@ -185,7 +232,7 @@ function NotesList({ event }) {
             <div className="note-images">
               {n.note_images.map(img => {
                 const { data } = supabase.storage.from('note-images').getPublicUrl(img.storage_path)
-                return <img key={img.id} src={data.publicUrl} className="note-img" alt="schema" />
+                return <img key={img.id} src={data.publicUrl} className="note-img" alt="nota" />
               })}
             </div>
           )}
@@ -197,13 +244,11 @@ function NotesList({ event }) {
 
 /* ============================================================
    PRESENCE FORM
-   Mostra i slot (categorie/gruppi) definiti dall'admin + Jolly
    ============================================================ */
 function PresenceForm({ event, profile, onDone, onCancel }) {
   const [selectedSlot, setSelectedSlot] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  // Costruisce la lista degli slot selezionabili dai slots dell'evento
   const slots = (event.slots || []).map(s => {
     if (s.category) return { key: `cat_${s.category_id}`, label: s.category.name, category_id: s.category_id, group_id: null }
     if (s.group) {
@@ -213,13 +258,11 @@ function PresenceForm({ event, profile, onDone, onCancel }) {
     return null
   }).filter(Boolean)
 
-  const jollySlot = { key: 'jolly', label: 'Jolly' }
-  const allOptions = [...slots, jollySlot]
+  const allOptions = [...slots, { key: 'jolly', label: 'Jolly' }]
 
   async function confirm() {
     if (!selectedSlot) return
     setSaving(true)
-
     const isJolly = selectedSlot.key === 'jolly'
     const payload = {
       coach_id: profile.id,
@@ -227,15 +270,12 @@ function PresenceForm({ event, profile, onDone, onCancel }) {
       category_id: isJolly ? null : selectedSlot.category_id,
       group_id: isJolly ? null : selectedSlot.group_id,
     }
-
     if (event.eventType === 'training') {
       payload.training_id = event.id
       payload.instance_date = event.dateStr
     } else {
       payload.activity_id = event.id
     }
-    
-    console.log('payload presenza:', JSON.stringify(payload))
     await supabase.from('attendances').insert(payload)
     setSaving(false)
     onDone()
@@ -250,20 +290,18 @@ function PresenceForm({ event, profile, onDone, onCancel }) {
         <label>Ruolo per questo allenamento</label>
         <div className="chip-group">
           {allOptions.map(opt => (
-            <div
-              key={opt.key}
+            <div key={opt.key}
               className={`chip${selectedSlot?.key === opt.key ? ' selected' : ''}`}
-              onClick={() => setSelectedSlot(opt)}
-            >
+              onClick={() => setSelectedSlot(opt)}>
               {opt.label === 'Jolly' ? '⭐ Jolly' : opt.label}
             </div>
           ))}
         </div>
       </div>
       {selectedSlot?.key === 'jolly' && (
-        <div style={{ fontSize: 12, color: '#888', marginBottom: 12, background: '#f8f8f7', borderRadius: 8, padding: '8px 10px' }}>
+        <p style={{ fontSize: 12, color: '#888', marginBottom: 12, background: '#f8f8f7', borderRadius: 8, padding: '8px 10px' }}>
           Il jolly verrà conteggiato come +1 nel gruppo che non raggiunge il minimo richiesto.
-        </div>
+        </p>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="btn btn-primary btn-sm" onClick={confirm} disabled={!selectedSlot || saving}>
@@ -299,9 +337,7 @@ function NoteForm({ event, profile, onDone, onCancel }) {
     } else {
       notePayload.activity_id = event.id
     }
-
     const { data: note } = await supabase.from('notes').insert(notePayload).select().single()
-
     if (note && images.length > 0) {
       for (const file of images) {
         const path = `${profile.id}/${note.id}/${Date.now()}_${file.name}`
@@ -309,57 +345,38 @@ function NoteForm({ event, profile, onDone, onCancel }) {
         await supabase.from('note_images').insert({ note_id: note.id, storage_path: path })
       }
     }
-
     setSaving(false)
     onDone()
   }
-
-  const scopes = [
-    { value: 'single', label: 'Questo allenamento' },
-    { value: 'week', label: 'Tutta la settimana' },
-    { value: 'multi', label: 'Selezione multipla' },
-  ]
 
   return (
     <div>
       <div className="field">
         <label>Ambito della nota</label>
         <div className="chip-group">
-          {scopes.map(s => (
-            <div
-              key={s.value}
-              className={`chip${scope === s.value ? ' selected' : ''}`}
-              onClick={() => setScope(s.value)}
-            >
+          {[{ value: 'single', label: 'Questo allenamento' }, { value: 'week', label: 'Settimana' }, { value: 'multi', label: 'Multipla' }].map(s => (
+            <div key={s.value} className={`chip${scope === s.value ? ' selected' : ''}`} onClick={() => setScope(s.value)}>
               {s.label}
             </div>
           ))}
         </div>
       </div>
       <div className="field">
-        <label>Nota (obiettivi, schemi, avvisi)</label>
+        <label>Nota</label>
         <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Scrivi qui..." />
       </div>
       <div className="field">
-        <label>Immagini (schemi, foto)</label>
-        <div className="img-upload-area" onClick={() => fileRef.current.click()}>
-          Clicca per aggiungere immagini
-        </div>
+        <label>Immagini</label>
+        <div className="img-upload-area" onClick={() => fileRef.current.click()}>Clicca per aggiungere immagini</div>
         <input type="file" ref={fileRef} accept="image/*" multiple style={{ display: 'none' }} onChange={handleFiles} />
         {images.length > 0 && (
           <div className="img-previews">
-            {images.map((f, i) => (
-              <img key={i} src={URL.createObjectURL(f)} className="img-preview-thumb" alt="preview" />
-            ))}
+            {images.map((f, i) => <img key={i} src={URL.createObjectURL(f)} className="img-preview-thumb" alt="preview" />)}
           </div>
         )}
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={save}
-          disabled={(!content && images.length === 0) || saving}
-        >
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={(!content && images.length === 0) || saving}>
           {saving ? 'Salvataggio...' : 'Salva nota'}
         </button>
         <button className="btn btn-secondary btn-sm" onClick={onCancel}>Annulla</button>
@@ -369,8 +386,7 @@ function NoteForm({ event, profile, onDone, onCancel }) {
 }
 
 /* ============================================================
-   EDIT INSTANCE FORM (solo admin, solo allenamenti)
-   Supporta categorie e gruppi
+   EDIT INSTANCE FORM
    ============================================================ */
 function EditInstanceForm({ event, onDone, onCancel }) {
   const [allCats, setAllCats] = useState([])
@@ -383,13 +399,9 @@ function EditInstanceForm({ event, onDone, onCancel }) {
   useState(() => {
     async function load() {
       const { data: cats } = await supabase.from('categories').select('id,name').order('name')
-      const { data: groups } = await supabase
-        .from('category_groups')
-        .select('id, name, category_group_members(category:categories(id,name))')
+      const { data: groups } = await supabase.from('category_groups').select('id, name, category_group_members(category:categories(id,name))')
       setAllCats(cats || [])
       setAllGroups(groups || [])
-
-      // Pre-popola con i valori attuali dell'evento
       const preSelected = []
       const preMins = {}
       for (const slot of event.slots || []) {
@@ -423,27 +435,17 @@ function EditInstanceForm({ event, onDone, onCancel }) {
   async function save() {
     if (!selected.length) return
     setSaving(true)
-
     let overrideId
-    const { data: existing } = await supabase
-      .from('training_instance_overrides')
-      .select('id')
-      .eq('training_id', event.id)
-      .eq('instance_date', event.dateStr)
-      .single()
-
+    const { data: existing } = await supabase.from('training_instance_overrides')
+      .select('id').eq('training_id', event.id).eq('instance_date', event.dateStr).single()
     if (existing) {
       overrideId = existing.id
       await supabase.from('instance_override_categories').delete().eq('override_id', overrideId)
     } else {
-      const { data: created } = await supabase
-        .from('training_instance_overrides')
-        .insert({ training_id: event.id, instance_date: event.dateStr })
-        .select()
-        .single()
+      const { data: created } = await supabase.from('training_instance_overrides')
+        .insert({ training_id: event.id, instance_date: event.dateStr }).select().single()
       overrideId = created.id
     }
-
     for (const s of selected) {
       await supabase.from('instance_override_categories').insert({
         override_id: overrideId,
@@ -452,7 +454,6 @@ function EditInstanceForm({ event, onDone, onCancel }) {
         min_coaches: mins[s.key] ?? 2,
       })
     }
-
     setSaving(false)
     onDone()
   }
@@ -462,68 +463,45 @@ function EditInstanceForm({ event, onDone, onCancel }) {
   return (
     <div>
       <div className="info-banner">Modifica solo questa istanza. La ricorrenza globale non cambia.</div>
-
       {allCats.length > 0 && (
         <div className="field">
           <label>Categorie singole</label>
           <div className="chip-group">
             {allCats.map(c => {
               const key = `cat_${c.id}`
-              return (
-                <div
-                  key={key}
-                  className={`chip${selected.find(s => s.key === key) ? ' selected' : ''}`}
-                  onClick={() => handleToggle({ key, type: 'category', id: c.id, name: c.name })}
-                >
-                  {c.name}
-                </div>
-              )
+              return <div key={key} className={`chip${selected.find(s => s.key === key) ? ' selected' : ''}`}
+                onClick={() => handleToggle({ key, type: 'category', id: c.id, name: c.name })}>{c.name}</div>
             })}
           </div>
         </div>
       )}
-
       {allGroups.length > 0 && (
         <div className="field">
-          <label>Gruppi di categorie</label>
+          <label>Gruppi</label>
           <div className="chip-group">
             {allGroups.map(g => {
               const key = `grp_${g.id}`
               const label = g.name || g.category_group_members?.map(m => m.category?.name).join('+')
-              return (
-                <div
-                  key={key}
-                  className={`chip${selected.find(s => s.key === key) ? ' selected' : ''}`}
-                  onClick={() => handleToggle({ key, type: 'group', id: g.id, groupName: label })}
-                >
-                  {label}
-                </div>
-              )
+              return <div key={key} className={`chip${selected.find(s => s.key === key) ? ' selected' : ''}`}
+                onClick={() => handleToggle({ key, type: 'group', id: g.id, groupName: label })}>{label}</div>
             })}
           </div>
         </div>
       )}
-
       {selected.length > 0 && (
         <div className="field">
-          <label>Minimi per categoria/gruppo</label>
+          <label>Minimi</label>
           {selected.map(s => (
             <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, minWidth: 80, color: '#555' }}>
-                {s.type === 'category' ? s.name : s.groupName}
-              </span>
-              <input
-                type="number" min={1} max={10}
-                value={mins[s.key] ?? 2}
+              <span style={{ fontSize: 12, minWidth: 80, color: '#555' }}>{s.type === 'category' ? s.name : s.groupName}</span>
+              <input type="number" min={1} max={10} value={mins[s.key] ?? 2}
                 onChange={e => setMins(m => ({ ...m, [s.key]: parseInt(e.target.value) || 2 }))}
-                style={{ width: 56, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12 }}
-              />
-              <span style={{ fontSize: 11, color: '#aaa' }}>min. allenatori</span>
+                style={{ width: 56, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12 }} />
+              <span style={{ fontSize: 11, color: '#aaa' }}>min.</span>
             </div>
           ))}
         </div>
       )}
-
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-primary btn-sm" onClick={save} disabled={!selected.length || saving}>
           {saving ? 'Salvataggio...' : 'Salva istanza'}
