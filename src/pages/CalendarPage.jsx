@@ -14,7 +14,7 @@ function timeToMinutes(t) {
 }
 
 // Pixel per minuto nella vista settimana
-const PX_PER_MIN = 1.2
+const PX_PER_MIN = 0.8
 const DAY_START = 8 * 60  // 14:00
 const DAY_END   = 21 * 60  // 21:00
 const TOTAL_PX  = (DAY_END - DAY_START) * PX_PER_MIN
@@ -136,7 +136,7 @@ export default function CalendarPage() {
 }
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
-const HOUR_LABELS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00']
+const HOUR_LABELS = ['08:00', '10:00', '12:00', '14:00', '16:00', '17:30', '19:00', '20:00', '21:00']
 
 function WeekView({ currentDate, getEventsForDay, onEventClick }) {
   const ws = startOfWeek(currentDate, { weekStartsOn: 1 })
