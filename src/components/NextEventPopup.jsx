@@ -174,10 +174,10 @@ export default function NextEventPopup({ onClose }) {
 
         {/* ── HEADER ── */}
         <div style={{ background: 'var(--accent)', padding: '16px 20px 14px', position: 'relative', flexShrink: 0 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>
+          <div style={{ fontSize: 11, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>
             Prossimi impegni
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', paddingRight: 36 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', paddingRight: 36, textShadow: '0 1px 3px rgba(0,0,0,0.3)'}}>
             {loading ? 'Caricamento...' : filtered.length === 0 ? 'Nessun impegno' : event?.title}
           </div>
           <button onClick={onClose} style={{
