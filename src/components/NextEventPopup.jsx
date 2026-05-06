@@ -3,7 +3,6 @@ import { format, addDays } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { computeCoverage } from '../hooks/useCalendarData'
 
 function timeToMinutes(t) {
   if (!t) return 0
@@ -14,6 +13,14 @@ function timeToMinutes(t) {
 function getDayOfWeek(date) {
   const d = date.getDay()
   return d === 0 ? 7 : d
+}
+
+const BTN = {
+  width: 32, height: 32, borderRadius: '50%',
+  border: '2px solid var(--accent)',
+  fontSize: 18, cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  fontWeight: 700, transition: 'opacity 0.15s',
 }
 
 export default function NextEventPopup({ onClose }) {
@@ -39,84 +46,61 @@ export default function NextEventPopup({ onClose }) {
         .select(`*, recurring_training_categories(min_coaches, category_id, group_id,
           category:categories(id,name),
           group:category_groups(id,name,category_group_members(category:categories(id,name)))
-        )`)
-        .eq('active', true),
-
+        )`).eq('active', true),
       supabase.from('activities')
         .select(`*, activity_categories(min_coaches, category_id, group_id,
           category:categories(id,name),
           group:category_groups(id,name,category_group_members(category:categories(id,name)))
-        )`)
-        .gte('date', todayStr)
-        .lte('date', endStr),
-
-      supabase.from('attendances')
-        .select('*')
-        .eq('coach_id', profile.id),
-
+        )`).gte('date', todayStr).lte('date', endStr),
+      supabase.from('attendances').select('*').eq('coach_id', profile.id),
       supabase.from('training_instance_exceptions')
         .select('training_id, instance_date')
-        .gte('instance_date', todayStr)
-        .lte('instance_date', endStr),
+        .gte('instance_date', todayStr).lte('instance_date', endStr),
     ])
 
     const trainings = trainingsRes.data || []
     const activities = activitiesRes.data || []
     const attendances = attendancesRes.data || []
     const exceptions = exceptionsRes.data || []
-
     const result = []
 
-    // Genera istanze degli allenamenti ricorrenti nei prossimi 30 giorni
     for (let i = 0; i < 30; i++) {
       const date = addDays(today, i)
       const dateStr = format(date, 'yyyy-MM-dd')
       const dow = getDayOfWeek(date)
-
       trainings.forEach(t => {
         if (t.day_of_week !== dow) return
         if (t.start_date && dateStr < t.start_date) return
         if (t.end_date && dateStr > t.end_date) return
         if (exceptions.some(e => e.training_id === t.id && e.instance_date === dateStr)) return
-
         const myAtt = attendances.find(a => a.training_id === t.id && a.instance_date === dateStr)
         result.push({
-          id: t.id,
-          eventType: 'training',
+          id: t.id, eventType: 'training',
           title: t.title || 'Allenamento',
-          date,
-          dateStr,
-          start_time: t.start_time,
-          end_time: t.end_time,
+          date, dateStr,
+          start_time: t.start_time, end_time: t.end_time,
           slots: t.recurring_training_categories,
           myAttendance: myAtt || null,
         })
       })
     }
 
-    // Aggiungi attività
     activities.forEach(act => {
       const myAtt = attendances.find(a => a.activity_id === act.id)
       result.push({
-        id: act.id,
-        eventType: 'activity',
-        type: act.type,
+        id: act.id, eventType: 'activity', type: act.type,
         title: act.title || 'Festival',
-        date: new Date(act.date + 'T00:00:00'),
-        dateStr: act.date,
-        start_time: act.start_time,
-        end_time: act.end_time,
+        date: new Date(act.date + 'T00:00:00'), dateStr: act.date,
+        start_time: act.start_time, end_time: act.end_time,
         location: act.location,
         slots: act.activity_categories,
         myAttendance: myAtt || null,
       })
     })
 
-    // Ordina per data e orario
     result.sort((a, b) => {
-      const dateDiff = a.date - b.date
-      if (dateDiff !== 0) return dateDiff
-      return timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+      const dd = a.date - b.date
+      return dd !== 0 ? dd : timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
     })
 
     setEvents(result)
@@ -126,18 +110,8 @@ export default function NextEventPopup({ onClose }) {
   const filtered = onlyWithout ? events.filter(e => !e.myAttendance) : events
   const event = filtered[index]
 
-  // Reset indice e stato quando cambia il filtro
-  useEffect(() => {
-    setIndex(0)
-    setSelectedSlot(null)
-    setConfirmed(false)
-  }, [onlyWithout])
-
-  // Reset stato presenza quando cambia evento
-  useEffect(() => {
-    setSelectedSlot(null)
-    setConfirmed(false)
-  }, [index])
+  useEffect(() => { setIndex(0); setSelectedSlot(null); setConfirmed(false) }, [onlyWithout])
+  useEffect(() => { setSelectedSlot(null); setConfirmed(false) }, [index])
 
   async function confirmPresence() {
     if (!selectedSlot) return
@@ -158,7 +132,6 @@ export default function NextEventPopup({ onClose }) {
     await supabase.from('attendances').insert(payload)
     setSaving(false)
     setConfirmed(true)
-    // Ricarica per aggiornare myAttendance
     await loadEvents()
   }
 
@@ -195,137 +168,119 @@ export default function NextEventPopup({ onClose }) {
     }}>
       <div style={{
         background: '#fff', borderRadius: 16, width: 380, maxWidth: '100%',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden', minHeight: 420,
-        display: 'flex', flexDirection: 'column',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden',
+        display: 'flex', flexDirection: 'column', height: 420,
       }}>
-        {/* Header verde */}
-        <div style={{ background: 'var(--accent)', padding: '16px 20px 14px', position: 'relative' }}>
+
+        {/* ── HEADER ── */}
+        <div style={{ background: 'var(--accent)', padding: '16px 20px 14px', position: 'relative', flexShrink: 0 }}>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>
             Prossimi impegni
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: '#fff' }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', paddingRight: 36 }}>
             {loading ? 'Caricamento...' : filtered.length === 0 ? 'Nessun impegno' : event?.title}
           </div>
           <button onClick={onClose} style={{
             position: 'absolute', top: 14, right: 16,
             background: '#fff', border: 'none', color: 'var(--accent)',
-            borderRadius: '50%', width: 28, height: 28, fontSize: 16, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 700, boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+            borderRadius: '50%', width: 28, height: 28, fontSize: 14,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 700, boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
           }}>✕</button>
         </div>
 
-        {loading ? (
-          <div style={{ padding: 32, textAlign: 'center', color: '#aaa', fontSize: 13 }}>Caricamento...</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding: 32, textAlign: 'center', color: '#aaa', fontSize: 13 }}>
-            Nessun impegno nei prossimi 30 giorni.
-          </div>
-        ) : (
-          <>
-            {/* Data e dettagli */}
-            <div style={{ padding: '16px 20px 0' }}>
-              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent)', marginBottom: 2 }}>
+        {/* ── BODY (scrollabile se necessario) ── */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', color: '#aaa', fontSize: 13, paddingTop: 40 }}>Caricamento...</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#aaa', fontSize: 13, paddingTop: 40 }}>
+              Nessun impegno nei prossimi 30 giorni.
+            </div>
+          ) : (
+            <>
+              {/* Data */}
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--accent)', marginBottom: 2, textTransform: 'capitalize' }}>
                 {format(event.date, 'EEEE d MMMM', { locale: it })}
               </div>
-              <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>
+              <div style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
                 {format(event.date, 'yyyy', { locale: it })}
                 {event.start_time && ` · ${event.start_time.slice(0,5)}${event.end_time ? ` → ${event.end_time.slice(0,5)}` : ''}`}
               </div>
-              {event.location && (
-                <div style={{ fontSize: 12, color: '#888' }}>📍 {event.location}</div>
-              )}
+              {event.location && <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>📍 {event.location}</div>}
               {event.eventType === 'activity' && (
-                <span className={`badge ${event.type === 'festival' ? 'badge-purple' : 'badge-coach'}`} style={{ marginTop: 4 }}>
+                <span className={`badge ${event.type === 'festival' ? 'badge-purple' : 'badge-coach'}`} style={{ marginBottom: 12, display: 'inline-block' }}>
                   {event.type === 'festival' ? 'Festival' : 'Attività'}
                 </span>
               )}
-            </div>
 
-            {/* Presenza */}
-            <div style={{ padding: '12px 20px' }}>
-              {event.myAttendance ? (
-                <div style={{ background: 'var(--accent-light)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
-                  ✓ Presenza già confermata — {presenceLabel(event.myAttendance)}
-                </div>
-              ) : confirmed ? (
-                <div style={{ background: 'var(--accent-light)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
-                  ✓ Presenza confermata!
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 8, fontWeight: 500 }}>Sei disponibile?</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-                    {slotOptions(event).map(opt => (
-                      <div
-                        key={opt.key}
-                        className={`chip${selectedSlot?.key === opt.key ? ' selected' : ''}`}
-                        onClick={() => setSelectedSlot(opt)}
-                      >
-                        {opt.label}
-                      </div>
-                    ))}
+              {/* Presenza */}
+              <div style={{ marginTop: 8 }}>
+                {event.myAttendance ? (
+                  <div style={{ background: 'var(--accent-light)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
+                    ✓ Presenza già confermata — {presenceLabel(event.myAttendance)}
                   </div>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={confirmPresence}
-                    disabled={!selectedSlot || saving}
-                    style={{ width: '100%', justifyContent: 'center' }}
-                  >
-                    {saving ? 'Salvataggio...' : 'Conferma presenza'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Footer navigazione */}
-            <div style={{
-              padding: '10px 20px 16px',
-              borderTop: '1px solid #f0f0f0',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
-              {/* Filtro */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#888', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={onlyWithout}
-                  onChange={e => setOnlyWithout(e.target.checked)}
-                  style={{ cursor: 'pointer' }}
-                />
-                Solo senza presenza
-              </label>
-
-              {/* Frecce navigazione */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, color: '#aaa' }}>
-                  {index + 1} / {filtered.length}
-                </span>
-                <button
-                  onClick={() => setIndex(i => Math.max(0, i - 1))}
-                  disabled={index === 0}
-                  style={{
-                    width: 30, height: 30, borderRadius: '50%', border: '1px solid #e5e5e5',
-                    background: index === 0 ? '#f5f5f4' : '#fff', cursor: index === 0 ? 'default' : 'pointer',
-                    fontSize: 16, color: index === 0 ? '#ccc' : '#1a1a1a',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >‹</button>
-                <button
-                  onClick={() => setIndex(i => Math.min(filtered.length - 1, i + 1))}
-                  disabled={index === filtered.length - 1}
-                  style={{
-                    width: 30, height: 30, borderRadius: '50%', border: '1px solid #e5e5e5',
-                    background: 'var(--accent)',
-                    cursor: index === filtered.length - 1 ? 'default' : 'pointer',
-                    fontSize: 16, color: '#fff',
-                    opacity: index === filtered.length - 1 ? 0.35 : 1,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >›</button>
+                ) : confirmed ? (
+                  <div style={{ background: 'var(--accent-light)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
+                    ✓ Presenza confermata!
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 8, fontWeight: 500 }}>Sei disponibile?</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                      {slotOptions(event).map(opt => (
+                        <div key={opt.key}
+                          className={`chip${selectedSlot?.key === opt.key ? ' selected' : ''}`}
+                          onClick={() => setSelectedSlot(opt)}>
+                          {opt.label}
+                        </div>
+                      ))}
+                    </div>
+                    <button className="btn btn-primary btn-sm"
+                      onClick={confirmPresence}
+                      disabled={!selectedSlot || saving}
+                      style={{ width: '100%', justifyContent: 'center' }}>
+                      {saving ? 'Salvataggio...' : 'Conferma presenza'}
+                    </button>
+                  </>
+                )}
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
+
+        {/* ── FOOTER FISSO ── */}
+        <div style={{
+          flexShrink: 0,
+          borderTop: '1px solid #f0f0f0',
+          padding: '10px 20px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: '#fff',
+        }}>
+          {/* Filtro */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer', userSelect: 'none' }}>
+            <input type="checkbox" checked={onlyWithout} onChange={e => setOnlyWithout(e.target.checked)} style={{ cursor: 'pointer' }} />
+            Solo senza presenza
+          </label>
+
+          {/* Frecce */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#aaa', minWidth: 36, textAlign: 'center' }}>
+              {filtered.length > 0 ? `${index + 1} / ${filtered.length}` : '—'}
+            </span>
+            <button
+              onClick={() => setIndex(i => Math.max(0, i - 1))}
+              disabled={index === 0}
+              style={{ ...BTN, background: '#fff', color: 'var(--accent)', opacity: index === 0 ? 0.3 : 1 }}
+            >‹</button>
+            <button
+              onClick={() => setIndex(i => Math.min(filtered.length - 1, i + 1))}
+              disabled={!filtered.length || index === filtered.length - 1}
+              style={{ ...BTN, background: 'var(--accent)', color: '#fff', opacity: (!filtered.length || index === filtered.length - 1) ? 0.3 : 1 }}
+            >›</button>
+          </div>
+        </div>
+
       </div>
     </div>
   )
