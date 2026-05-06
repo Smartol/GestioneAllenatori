@@ -6,18 +6,11 @@ import EventModal from '../components/EventModal'
 
 const TODAY = new Date()
 
-// Converte "HH:MM" o "HH:MM:SS" in minuti dall'inizio della giornata
 function timeToMinutes(t) {
-  if (!t) return null
+  if (!t) return 0
   const [h, m] = t.split(':').map(Number)
   return h * 60 + m
 }
-
-// Pixel per minuto nella vista settimana
-const PX_PER_MIN = 1.0
-const DAY_START = 8 * 60  // 14:00
-const DAY_END   = 21 * 60  // 21:00
-const TOTAL_PX  = (DAY_END - DAY_START) * PX_PER_MIN
 
 export default function CalendarPage() {
   const [view, setView] = useState('week')
@@ -59,7 +52,6 @@ export default function CalendarPage() {
       if (t.day_of_week !== dow) return
       if (!isInRange(t, dateStr)) return
       if (isException(t.id, dateStr)) return
-
       const override = overrides.find(o => o.training_id === t.id && o.instance_date === dateStr)
       const slots = override ? override.instance_override_categories : t.recurring_training_categories
       const att = attendances.filter(a => a.training_id === t.id && a.instance_date === dateStr)
@@ -77,6 +69,8 @@ export default function CalendarPage() {
       }
     })
 
+    // Ordina per orario
+    result.sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time))
     return result
   }
 
@@ -136,7 +130,6 @@ export default function CalendarPage() {
 }
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
-const HOUR_LABELS = ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '21:00']
 
 function WeekView({ currentDate, getEventsForDay, onEventClick }) {
   const ws = startOfWeek(currentDate, { weekStartsOn: 1 })
@@ -146,13 +139,17 @@ function WeekView({ currentDate, getEventsForDay, onEventClick }) {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', border: '1px solid #e5e5e5', borderRadius: 12, overflow: 'hidden', minWidth: 480 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', border: '1px solid #e5e5e5', borderRadius: 12, overflow: 'hidden', minWidth: 480 }}>
         {/* Header giorni */}
-        <div style={{ background: '#f8f8f7', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #e5e5e5' }} />
         {days.map((d, i) => {
           const isToday = isSameDay(d, new Date())
           return (
-            <div key={i} style={{ textAlign: 'center', padding: '6px 2px', background: '#f8f8f7', borderBottom: '1px solid #e5e5e5', borderRight: i < 6 ? '1px solid #e5e5e5' : 'none' }}>
+            <div key={i} style={{
+              textAlign: 'center', padding: '6px 2px',
+              background: '#f8f8f7',
+              borderBottom: '1px solid #e5e5e5',
+              borderRight: i < 6 ? '1px solid #e5e5e5' : 'none',
+            }}>
               <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{DAYS[i]}</div>
               <div style={{
                 fontSize: 15, fontWeight: 500, width: 26, height: 26, borderRadius: '50%',
@@ -164,71 +161,44 @@ function WeekView({ currentDate, getEventsForDay, onEventClick }) {
           )
         })}
 
-        {/* Colonna oraria */}
-        <div style={{ position: 'relative', height: TOTAL_PX, borderRight: '1px solid #e5e5e5', background: '#f8f8f7' }}>
-          {HOUR_LABELS.map((label, i) => (
-            <div key={i} style={{
-              position: 'absolute',
-              top: i * 120 * PX_PER_MIN - 6,
-              right: 4, fontSize: 9, color: '#bbb', lineHeight: 1,
-            }}>{label}</div>
-          ))}
-        </div>
-
-        {/* Colonne giorni */}
+        {/* Celle giorni con eventi */}
         {days.map((d, di) => {
           const evs = getEventsForDay(d)
           return (
             <div key={di} style={{
-              position: 'relative', height: TOTAL_PX,
+              minHeight: 60,
+              padding: 4,
               borderRight: di < 6 ? '1px solid #e5e5e5' : 'none',
+              background: '#fff',
+              verticalAlign: 'top',
             }}>
-              {/* Linee orarie ogni 2h */}
-              {HOUR_LABELS.map((_, i) => (
-                <div key={i} style={{
-                  position: 'absolute',
-                  top: i * 120 * PX_PER_MIN,
-                  left: 0, right: 0,
-                  borderTop: '1px solid #f0f0f0',
-                }} />
-              ))}
-
               {evs.map(ev => {
-                const startMin = timeToMinutes(ev.start_time) ?? (DAY_START + 60)
-                const endMin = ev.end_time
-                  ? timeToMinutes(ev.end_time)
-                  : startMin + 90
-                const top = Math.max(0, (startMin - DAY_START) * PX_PER_MIN)
-                const height = Math.max(20, (endMin - startMin) * PX_PER_MIN)
                 const color = getCovColor(ev.coverage)
                 const isActivity = ev.eventType === 'activity'
-
                 return (
                   <div
                     key={ev.id + ev.eventType}
                     onClick={() => onEventClick(ev)}
                     style={{
-                      position: 'absolute', top, left: 2, right: 2, height,
-                      borderRadius: 5, padding: '3px 5px', cursor: 'pointer',
+                      borderRadius: 6,
+                      padding: '4px 6px',
+                      marginBottom: 4,
+                      cursor: 'pointer',
                       borderLeft: `3px solid ${isActivity ? 'var(--bordeaux)' : color === 'green' ? '#2e7d4f' : color === 'orange' ? '#b8610a' : '#b91c1c'}`,
                       background: isActivity
                         ? 'var(--bordeaux-light)'
                         : color === 'green' ? '#d4edda' : color === 'orange' ? '#fde8c8' : '#fcd5d5',
-                      overflow: 'hidden',
-                      zIndex: 1,
                     }}
                   >
-                    <div style={{ fontSize: 10, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {ev.title || 'Allenamento'}{isActivity ? ' ★' : ''}
                     </div>
-                    {height > 30 && (
-                      <div style={{ fontSize: 9, color: '#555', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {ev.coachNames?.length > 0 ? ev.coachNames.join(', ') : '—'}
-                      </div>
-                    )}
-                    {height > 44 && (
-                      <div style={{ fontSize: 9, color: '#888' }}>
-                        {ev.start_time?.slice(0,5)}{ev.end_time ? ` → ${ev.end_time?.slice(0,5)}` : ''}
+                    <div style={{ fontSize: 10, color: '#666' }}>
+                      {ev.start_time?.slice(0,5)}{ev.end_time ? ` → ${ev.end_time?.slice(0,5)}` : ''}
+                    </div>
+                    {ev.coachNames?.length > 0 && (
+                      <div style={{ fontSize: 10, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {ev.coachNames.join(', ')}
                       </div>
                     )}
                   </div>
