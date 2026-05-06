@@ -195,7 +195,8 @@ export default function NextEventPopup({ onClose }) {
     }}>
       <div style={{
         background: '#fff', borderRadius: 16, width: 380, maxWidth: '100%',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden', minHeight: 420,
+        display: 'flex', flexDirection: 'column',
       }}>
         {/* Header verde */}
         <div style={{ background: 'var(--accent)', padding: '16px 20px 14px', position: 'relative' }}>
@@ -314,9 +315,10 @@ export default function NextEventPopup({ onClose }) {
                   disabled={index === filtered.length - 1}
                   style={{
                     width: 30, height: 30, borderRadius: '50%', border: '1px solid #e5e5e5',
-                    background: index === filtered.length - 1 ? '#f5f5f4' : 'var(--accent)',
+                    background: 'var(--accent)',
                     cursor: index === filtered.length - 1 ? 'default' : 'pointer',
-                    fontSize: 16, color: index === filtered.length - 1 ? '#ccc' : '#fff',
+                    fontSize: 16, color: '#fff',
+                    opacity: index === filtered.length - 1 ? 0.35 : 1,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}
                 >›</button>
