@@ -207,9 +207,10 @@ export default function NextEventPopup({ onClose }) {
           </div>
           <button onClick={onClose} style={{
             position: 'absolute', top: 14, right: 16,
-            background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff',
+            background: '#fff', border: 'none', color: 'var(--accent)',
             borderRadius: '50%', width: 28, height: 28, fontSize: 16, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 700, boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
           }}>✕</button>
         </div>
 
