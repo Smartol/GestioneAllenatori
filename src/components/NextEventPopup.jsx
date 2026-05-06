@@ -4,6 +4,9 @@ import { it } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
+const ACCENT = '#2d5a27'
+const ACCENT_LIGHT = '#e8f0e7'
+
 function timeToMinutes(t) {
   if (!t) return 0
   const [h, m] = t.split(':').map(Number)
@@ -15,17 +18,18 @@ function getDayOfWeek(date) {
   return d === 0 ? 7 : d
 }
 
-const BTN = {
+const BTN_BASE = {
   width: 32, height: 32, borderRadius: '50%',
-  border: '2px solid var(--accent)',
+  border: `2px solid ${ACCENT}`,
   fontSize: 18, cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontWeight: 700, transition: 'opacity 0.15s',
+  fontWeight: 700,
 }
 
 export default function NextEventPopup({ onClose }) {
   const { profile } = useAuth()
   const [events, setEvents] = useState([])
+  const [allAttendances, setAllAttendances] = useState([])
   const [loading, setLoading] = useState(true)
   const [index, setIndex] = useState(0)
   const [onlyWithout, setOnlyWithout] = useState(false)
@@ -41,7 +45,7 @@ export default function NextEventPopup({ onClose }) {
     const todayStr = format(today, 'yyyy-MM-dd')
     const endStr = format(addDays(today, 30), 'yyyy-MM-dd')
 
-    const [trainingsRes, activitiesRes, attendancesRes, exceptionsRes] = await Promise.all([
+    const [trainingsRes, activitiesRes, myAttRes, allAttRes, exceptionsRes] = await Promise.all([
       supabase.from('recurring_trainings')
         .select(`*, recurring_training_categories(min_coaches, category_id, group_id,
           category:categories(id,name),
@@ -53,6 +57,8 @@ export default function NextEventPopup({ onClose }) {
           group:category_groups(id,name,category_group_members(category:categories(id,name)))
         )`).gte('date', todayStr).lte('date', endStr),
       supabase.from('attendances').select('*').eq('coach_id', profile.id),
+      supabase.from('attendances').select('*, coach:profiles(id,full_name)')
+        .or(`and(training_id.not.is.null,instance_date.gte.${todayStr},instance_date.lte.${endStr}),and(activity_id.not.is.null)`),
       supabase.from('training_instance_exceptions')
         .select('training_id, instance_date')
         .gte('instance_date', todayStr).lte('instance_date', endStr),
@@ -60,7 +66,8 @@ export default function NextEventPopup({ onClose }) {
 
     const trainings = trainingsRes.data || []
     const activities = activitiesRes.data || []
-    const attendances = attendancesRes.data || []
+    const myAtt = myAttRes.data || []
+    const allAtt = allAttRes.data || []
     const exceptions = exceptionsRes.data || []
     const result = []
 
@@ -73,20 +80,20 @@ export default function NextEventPopup({ onClose }) {
         if (t.start_date && dateStr < t.start_date) return
         if (t.end_date && dateStr > t.end_date) return
         if (exceptions.some(e => e.training_id === t.id && e.instance_date === dateStr)) return
-        const myAtt = attendances.find(a => a.training_id === t.id && a.instance_date === dateStr)
+        const myAttendance = myAtt.find(a => a.training_id === t.id && a.instance_date === dateStr)
         result.push({
           id: t.id, eventType: 'training',
           title: t.title || 'Allenamento',
           date, dateStr,
           start_time: t.start_time, end_time: t.end_time,
           slots: t.recurring_training_categories,
-          myAttendance: myAtt || null,
+          myAttendance: myAttendance || null,
         })
       })
     }
 
     activities.forEach(act => {
-      const myAtt = attendances.find(a => a.activity_id === act.id)
+      const myAttendance = myAtt.find(a => a.activity_id === act.id)
       result.push({
         id: act.id, eventType: 'activity', type: act.type,
         title: act.title || 'Festival',
@@ -94,7 +101,7 @@ export default function NextEventPopup({ onClose }) {
         start_time: act.start_time, end_time: act.end_time,
         location: act.location,
         slots: act.activity_categories,
-        myAttendance: myAtt || null,
+        myAttendance: myAttendance || null,
       })
     })
 
@@ -104,6 +111,7 @@ export default function NextEventPopup({ onClose }) {
     })
 
     setEvents(result)
+    setAllAttendances(allAtt)
     setLoading(false)
   }
 
@@ -147,19 +155,28 @@ export default function NextEventPopup({ onClose }) {
     return [...slots, { key: 'jolly', label: '⭐ Jolly' }]
   }
 
-  function presenceLabel(att) {
-    if (!att) return null
+  function slotLabel(att, slots) {
     if (att.is_jolly) return '⭐ Jolly'
     if (att.category_id) {
-      const slot = event?.slots?.find(s => s.category_id === att.category_id)
-      return slot?.category?.name || 'Categoria'
+      const s = slots?.find(s => s.category_id === att.category_id)
+      return s?.category?.name || 'Cat.'
     }
     if (att.group_id) {
-      const slot = event?.slots?.find(s => s.group_id === att.group_id)
-      return slot?.group?.name || 'Gruppo'
+      const s = slots?.find(s => s.group_id === att.group_id)
+      return s?.group?.name || 'Gruppo'
     }
     return 'Presente'
   }
+
+  function getEventAttendances(ev) {
+    if (!ev) return []
+    if (ev.eventType === 'training')
+      return allAttendances.filter(a => a.training_id === ev.id && a.instance_date === ev.dateStr)
+    return allAttendances.filter(a => a.activity_id === ev.id)
+  }
+
+  const isLast = !filtered.length || index === filtered.length - 1
+  const isFirst = index === 0
 
   return (
     <div style={{
@@ -169,28 +186,28 @@ export default function NextEventPopup({ onClose }) {
       <div style={{
         background: '#fff', borderRadius: 16, width: 380, maxWidth: '100%',
         boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden',
-        display: 'flex', flexDirection: 'column', height: 420,
+        display: 'flex', flexDirection: 'column', height: 480,
       }}>
 
         {/* ── HEADER ── */}
-        <div style={{ background: 'var(--accent)', padding: '16px 20px 14px', position: 'relative', flexShrink: 0 }}>
-          <div style={{ fontSize: 11, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>
+        <div style={{ background: ACCENT, padding: '14px 20px 12px', position: 'relative', flexShrink: 0 }}>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 3 }}>
             Prossimi impegni
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', paddingRight: 36, textShadow: '0 1px 3px rgba(0,0,0,0.3)'}}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', paddingRight: 36 }}>
             {loading ? 'Caricamento...' : filtered.length === 0 ? 'Nessun impegno' : event?.title}
           </div>
           <button onClick={onClose} style={{
-            position: 'absolute', top: 14, right: 16,
-            background: '#fff', border: 'none', color: 'var(--accent)',
-            borderRadius: '50%', width: 28, height: 28, fontSize: 14,
+            position: 'absolute', top: 12, right: 14,
+            background: '#ffffff', border: 'none', color: ACCENT,
+            borderRadius: '50%', width: 26, height: 26, fontSize: 13,
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 700, boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+            fontWeight: 900, lineHeight: 1,
           }}>✕</button>
         </div>
 
-        {/* ── BODY (scrollabile se necessario) ── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+        {/* ── BODY ── */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px' }}>
           {loading ? (
             <div style={{ textAlign: 'center', color: '#aaa', fontSize: 13, paddingTop: 40 }}>Caricamento...</div>
           ) : filtered.length === 0 ? (
@@ -200,34 +217,60 @@ export default function NextEventPopup({ onClose }) {
           ) : (
             <>
               {/* Data */}
-              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--accent)', marginBottom: 2, textTransform: 'capitalize' }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a', marginBottom: 2, textTransform: 'capitalize' }}>
                 {format(event.date, 'EEEE d MMMM', { locale: it })}
               </div>
-              <div style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
-                {format(event.date, 'yyyy', { locale: it })}
+              <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>
+                {format(event.date, 'yyyy')}
                 {event.start_time && ` · ${event.start_time.slice(0,5)}${event.end_time ? ` → ${event.end_time.slice(0,5)}` : ''}`}
               </div>
-              {event.location && <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>📍 {event.location}</div>}
+              {event.location && <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>📍 {event.location}</div>}
               {event.eventType === 'activity' && (
-                <span className={`badge ${event.type === 'festival' ? 'badge-purple' : 'badge-coach'}`} style={{ marginBottom: 12, display: 'inline-block' }}>
+                <span style={{
+                  display: 'inline-block', marginBottom: 8,
+                  padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                  background: event.type === 'festival' ? '#f5e6e9' : ACCENT_LIGHT,
+                  color: event.type === 'festival' ? '#6b1a2a' : ACCENT,
+                }}>
                   {event.type === 'festival' ? 'Festival' : 'Attività'}
                 </span>
               )}
 
-              {/* Presenza */}
+              {/* Chi è già segnato */}
+              {(() => {
+                const att = getEventAttendances(event)
+                if (att.length === 0) return (
+                  <div style={{ fontSize: 12, color: '#aaa', marginBottom: 10 }}>Nessuna presenza dichiarata.</div>
+                )
+                return (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: ACCENT, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                      Presenti ({att.length})
+                    </div>
+                    {att.map(a => (
+                      <div key={a.id} style={{ fontSize: 12, padding: '3px 0', color: '#555', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f5f5f5' }}>
+                        <span style={{ fontWeight: 500 }}>{a.coach?.full_name}</span>
+                        <span style={{ color: '#999' }}>{slotLabel(a, event.slots)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* Presenza utente */}
               <div style={{ marginTop: 8 }}>
                 {event.myAttendance ? (
-                  <div style={{ background: 'var(--accent-light)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
-                    ✓ Presenza già confermata — {presenceLabel(event.myAttendance)}
+                  <div style={{ background: ACCENT_LIGHT, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: ACCENT, fontWeight: 500 }}>
+                    ✓ Presenza confermata — {slotLabel(event.myAttendance, event.slots)}
                   </div>
                 ) : confirmed ? (
-                  <div style={{ background: 'var(--accent-light)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
+                  <div style={{ background: ACCENT_LIGHT, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: ACCENT, fontWeight: 500 }}>
                     ✓ Presenza confermata!
                   </div>
                 ) : (
                   <>
                     <div style={{ fontSize: 12, color: '#666', marginBottom: 8, fontWeight: 500 }}>Sei disponibile?</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
                       {slotOptions(event).map(opt => (
                         <div key={opt.key}
                           className={`chip${selectedSlot?.key === opt.key ? ' selected' : ''}`}
@@ -236,10 +279,15 @@ export default function NextEventPopup({ onClose }) {
                         </div>
                       ))}
                     </div>
-                    <button className="btn btn-primary btn-sm"
+                    <button
                       onClick={confirmPresence}
                       disabled={!selectedSlot || saving}
-                      style={{ width: '100%', justifyContent: 'center' }}>
+                      style={{
+                        width: '100%', padding: '8px', borderRadius: 8, border: 'none',
+                        background: selectedSlot ? ACCENT : '#e5e5e5',
+                        color: selectedSlot ? '#fff' : '#aaa',
+                        fontSize: 13, fontWeight: 600, cursor: selectedSlot ? 'pointer' : 'default',
+                      }}>
                       {saving ? 'Salvataggio...' : 'Conferma presenza'}
                     </button>
                   </>
@@ -251,32 +299,28 @@ export default function NextEventPopup({ onClose }) {
 
         {/* ── FOOTER FISSO ── */}
         <div style={{
-          flexShrink: 0,
-          borderTop: '1px solid #f0f0f0',
-          padding: '10px 20px',
+          flexShrink: 0, borderTop: '1px solid #f0f0f0',
+          padding: '10px 20px', background: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: '#fff',
         }}>
-          {/* Filtro */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer', userSelect: 'none' }}>
-            <input type="checkbox" checked={onlyWithout} onChange={e => setOnlyWithout(e.target.checked)} style={{ cursor: 'pointer' }} />
+            <input type="checkbox" checked={onlyWithout} onChange={e => setOnlyWithout(e.target.checked)} />
             Solo senza presenza
           </label>
 
-          {/* Frecce */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 11, color: '#aaa', minWidth: 36, textAlign: 'center' }}>
               {filtered.length > 0 ? `${index + 1} / ${filtered.length}` : '—'}
             </span>
             <button
               onClick={() => setIndex(i => Math.max(0, i - 1))}
-              disabled={index === 0}
-              style={{ ...BTN, background: '#fff', color: 'var(--accent)', opacity: index === 0 ? 0.3 : 1 }}
+              disabled={isFirst}
+              style={{ ...BTN_BASE, background: '#fff', color: ACCENT, opacity: isFirst ? 0.3 : 1 }}
             >‹</button>
             <button
               onClick={() => setIndex(i => Math.min(filtered.length - 1, i + 1))}
-              disabled={!filtered.length || index === filtered.length - 1}
-              style={{ ...BTN, background: 'var(--accent)', color: '#fff', opacity: (!filtered.length || index === filtered.length - 1) ? 0.3 : 1 }}
+              disabled={isLast}
+              style={{ ...BTN_BASE, background: ACCENT, color: '#ffffff', opacity: isLast ? 0.3 : 1 }}
             >›</button>
           </div>
         </div>
