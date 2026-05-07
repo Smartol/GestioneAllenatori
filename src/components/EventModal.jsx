@@ -17,68 +17,75 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
   const endTimeStr = event.end_time?.slice(0,5) || ''
   const subtitle = `${timeStr}${endTimeStr ? ` → ${endTimeStr}` : ''} · ${format(dateObj, 'EEEE d MMMM yyyy', { locale: it })}`
 
-  async function handleDelete() {
-    if (event.eventType === 'training') {
-      if (!window.confirm('Eliminare solo questa data o tutta la ricorrenza?')) return
-      // Aggiunge un\'eccezione per questa data specifica
-      await supabase.from('training_instance_exceptions').insert({
-        training_id: event.id,
-        instance_date: event.dateStr,
-      })
-    } else {
-      if (!window.confirm('Eliminare questa attività?')) return
-      await supabase.from('activities').delete().eq('id', event.id)
+  async function handleSkipDate() {
+    const hasAttendances = attendances.length > 0
+    const msg = hasAttendances
+      ? `Saltare questa data? Attenzione: ${attendances.length} presenza/e già registrata/e verrà eliminata/e.`
+      : 'Saltare questa data dell\'allenamento?'
+    if (!window.confirm(msg)) return
+    if (hasAttendances) {
+      await supabase.from('attendances')
+        .delete()
+        .eq('training_id', event.id)
+        .eq('instance_date', event.dateStr)
     }
+    await supabase.from('training_instance_exceptions').insert({
+      training_id: event.id,
+      instance_date: event.dateStr,
+    })
     onDelete()
   }
 
   async function handleDeleteAll() {
-    if (!window.confirm('Eliminare l\'intera ricorrenza?')) return
+    const hasAttendances = attendances.length > 0
+    const msg = hasAttendances
+      ? `Eliminare l'intera ricorrenza? Attenzione: ci sono presenze registrate che verranno eliminate.`
+      : "Eliminare l'intera ricorrenza?"
+    if (!window.confirm(msg)) return
     await supabase.from('recurring_trainings').update({ active: false }).eq('id', event.id)
+    onDelete()
+  }
+
+  async function handleDeleteActivity() {
+    const hasAttendances = attendances.length > 0
+    const msg = hasAttendances
+      ? `Eliminare questa attività? Attenzione: ${attendances.length} presenza/e registrata/e verrà eliminata/e.`
+      : 'Eliminare questa attività?'
+    if (!window.confirm(msg)) return
+    await supabase.from('activities').delete().eq('id', event.id)
     onDelete()
   }
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box">
-        <div className="modal-head">
+        <div className="modal-head" style={{ background: '#1a1a1a' }}>
           <div style={{ flex: 1 }}>
-            <div className="modal-title">
+            <div className="modal-title" style={{ color: '#fff' }}>
               {title}
               {event.eventType === 'activity' && event.type === 'festival' ? ' ★ Festival' : ''}
               {event.eventType === 'activity' && event.type === 'other' ? ' · Attività' : ''}
             </div>
-            <div className="modal-sub">{subtitle}</div>
-            {event.location && <div className="modal-sub">📍 {event.location}</div>}
-            {event.hosting_team && <div className="modal-sub">🏠 {event.hosting_team}</div>}
+            <div className="modal-sub" style={{ color: 'rgba(255,255,255,0.7)' }}>{subtitle}</div>
+            {event.location && <div className="modal-sub" style={{ color: 'rgba(255,255,255,0.7)' }}>📍 {event.location}</div>}
+            {event.hosting_team && <div className="modal-sub" style={{ color: 'rgba(255,255,255,0.7)' }}>🏠 {event.hosting_team}</div>}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-            <button className="modal-close" onClick={onClose}>✕</button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+            <button
+              className="modal-close"
+              onClick={onClose}
+              style={{ color: '#fff', fontSize: 20, fontWeight: 700 }}
+            >✕</button>
             {isAdmin && (
-              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {event.eventType === 'training' && (
                   <>
-                    <button
-                      onClick={handleDelete}
-                      style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', cursor: 'pointer' }}
-                    >
-                      🚫 Salta data
-                    </button>
-                    <button
-                      onClick={handleDeleteAll}
-                      style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', cursor: 'pointer' }}
-                    >
-                      🗑 Elimina tutto
-                    </button>
+                    <button onClick={handleSkipDate} style={adminBtn}>🚫 Salta</button>
+                    <button onClick={handleDeleteAll} style={{ ...adminBtn, background: '#fcd5d5', color: '#b91c1c' }}>🗑 Elimina tutto</button>
                   </>
                 )}
                 {event.eventType === 'activity' && (
-                  <button
-                    onClick={handleDelete}
-                    style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', cursor: 'pointer' }}
-                  >
-                    🗑 Elimina
-                  </button>
+                  <button onClick={handleDeleteActivity} style={{ ...adminBtn, background: '#fcd5d5', color: '#b91c1c' }}>🗑 Elimina</button>
                 )}
               </div>
             )}
@@ -92,7 +99,9 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
               attendances={attendances}
               myAttendance={myAttendance}
               isAdmin={isAdmin}
+              profile={profile}
               onSetView={setView}
+              onRefetch={onRefetch}
             />
           )}
           {view === 'presence' && (
@@ -110,11 +119,18 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
   )
 }
 
+const adminBtn = {
+  fontSize: 11, padding: '3px 8px', borderRadius: 6,
+  background: 'rgba(255,255,255,0.15)', color: '#fff',
+  border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer',
+}
+
 /* ============================================================
    MAIN VIEW
    ============================================================ */
-function MainView({ event, attendances, myAttendance, isAdmin, onSetView }) {
+function MainView({ event, attendances, myAttendance, isAdmin, profile, onSetView, onRefetch }) {
   const colLabel = { green: 'Soddisfatta', orange: 'Con jolly / al limite', red: 'Insufficiente' }
+  const [cancelling, setCancelling] = useState(false)
 
   function slotAttendanceLabel(a) {
     if (a.is_jolly) return '⭐ Jolly'
@@ -128,6 +144,14 @@ function MainView({ event, attendances, myAttendance, isAdmin, onSetView }) {
     if (myAttendance.is_jolly) return 'Jolly'
     if (myAttendance.category?.name) return myAttendance.category.name
     return 'Presente'
+  }
+
+  async function cancelPresence() {
+    if (!window.confirm('Disdire la tua presenza?')) return
+    setCancelling(true)
+    await supabase.from('attendances').delete().eq('id', myAttendance.id)
+    setCancelling(false)
+    onRefetch()
   }
 
   return (
@@ -144,8 +168,15 @@ function MainView({ event, attendances, myAttendance, isAdmin, onSetView }) {
           )
         })}
         {myAttendance && (
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span className="badge badge-green">✓ Presenza confermata — {myPresenceLabel()}</span>
+            <button
+              onClick={cancelPresence}
+              disabled={cancelling}
+              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#fcd5d5', color: '#b91c1c', border: 'none', cursor: 'pointer' }}
+            >
+              {cancelling ? '...' : 'Disdici'}
+            </button>
           </div>
         )}
       </div>
@@ -155,7 +186,7 @@ function MainView({ event, attendances, myAttendance, isAdmin, onSetView }) {
         {attendances.length === 0
           ? <p style={{ fontSize: 12, color: '#aaa' }}>Nessuna presenza dichiarata.</p>
           : attendances.map(a => (
-            <div key={a.id} style={{ fontSize: 12, padding: '4px 0', color: '#555', display: 'flex', justifyContent: 'space-between' }}>
+            <div key={a.id} style={{ fontSize: 12, padding: '4px 0', color: '#555', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f5f5f5' }}>
               <span style={{ fontWeight: 500 }}>{a.coach?.full_name}</span>
               <span style={{ color: '#888' }}>{slotAttendanceLabel(a)}</span>
             </div>
@@ -258,7 +289,7 @@ function PresenceForm({ event, profile, onDone, onCancel }) {
     return null
   }).filter(Boolean)
 
-  const allOptions = [...slots, { key: 'jolly', label: 'Jolly' }]
+  const allOptions = [...slots, { key: 'jolly', label: '⭐ Jolly' }]
 
   async function confirm() {
     if (!selectedSlot) return
@@ -293,7 +324,7 @@ function PresenceForm({ event, profile, onDone, onCancel }) {
             <div key={opt.key}
               className={`chip${selectedSlot?.key === opt.key ? ' selected' : ''}`}
               onClick={() => setSelectedSlot(opt)}>
-              {opt.label === 'Jolly' ? '⭐ Jolly' : opt.label}
+              {opt.label}
             </div>
           ))}
         </div>

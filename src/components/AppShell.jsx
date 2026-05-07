@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { supabase } from '../lib/supabase'
 import NextEventPopup from './NextEventPopup'
 
 export default function AppShell() {
-  const { profile, isAdmin, signOut } = useAuth()
+  const { profile, isAdmin, signOut, selectProfile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const isCalendar = location.pathname.startsWith('/calendario')
@@ -12,6 +13,7 @@ export default function AppShell() {
   const isBacheca = location.pathname.startsWith('/bacheca')
 
   const [showPopup, setShowPopup] = useState(true)
+  const [showProfile, setShowProfile] = useState(false)
 
   const roleLabel = (role) => {
     if (role === 'admin') return 'Admin'
@@ -25,30 +27,50 @@ export default function AppShell() {
     return 'badge-coach'
   }
 
+  function handleSignOut() {
+    setShowProfile(false)
+    signOut()
+  }
+
+  function handleChangeUser() {
+    setShowProfile(false)
+    signOut()
+  }
+
   return (
     <div className="app-shell">
-      {/* Popup prossimi impegni */}
-      {showPopup && (
-        <NextEventPopup onClose={() => setShowPopup(false)} />
+      {showPopup && <NextEventPopup onClose={() => setShowPopup(false)} />}
+      {showProfile && (
+        <ProfilePopup
+          profile={profile}
+          onClose={() => setShowProfile(false)}
+          onSignOut={handleSignOut}
+          onChangeUser={handleChangeUser}
+          onProfileUpdated={(updated) => { selectProfile(updated); setShowProfile(false) }}
+          roleLabel={roleLabel}
+          roleBadgeClass={roleBadgeClass}
+        />
       )}
 
       {/* Topbar */}
       <header className="topbar">
         <span className="topbar-brand">GS Calendario</span>
         <div className="topbar-right">
-          <span className="topbar-user">{profile?.full_name}</span>
-          <span className={`badge ${roleBadgeClass(profile?.role)}`}>
-            {roleLabel(profile?.role)}
-          </span>
-          <button className="btn btn-secondary btn-sm" onClick={signOut}
-            style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.3)' }}>
-            Esci
+          <button
+            onClick={() => setShowProfile(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'none', border: '1px solid #e5e5e5',
+              borderRadius: 20, padding: '4px 12px', cursor: 'pointer',
+            }}
+          >
+            <span style={{ fontSize: 13, color: '#1a1a1a', fontWeight: 500 }}>{profile?.full_name}</span>
+            <span className={`badge ${roleBadgeClass(profile?.role)}`}>{roleLabel(profile?.role)}</span>
           </button>
         </div>
       </header>
 
       <div className="main-layout">
-        {/* Sidebar desktop */}
         <nav className="sidebar">
           <div className="nav-section-label">Viste</div>
           <button className={`nav-item ${isCalendar ? 'active' : ''}`} onClick={() => navigate('/calendario')}>
@@ -63,22 +85,17 @@ export default function AppShell() {
             </button>
           )}
           <div style={{ marginTop: 12, borderTop: '1px solid #e5e5e5', paddingTop: 12 }}>
-            <button
-              className="nav-item"
-              onClick={() => setShowPopup(true)}
-            >
+            <button className="nav-item" onClick={() => setShowPopup(true)}>
               🔔 Prossimi impegni
             </button>
           </div>
         </nav>
 
-        {/* Content */}
         <main className="content">
           <Outlet />
         </main>
       </div>
 
-      {/* Mobile bottom nav */}
       <nav className="mobile-nav">
         <button className={`mobile-nav-item ${isCalendar ? 'active' : ''}`} onClick={() => navigate('/calendario')}>
           <span className="mobile-nav-icon">📅</span>
@@ -99,6 +116,109 @@ export default function AppShell() {
           </button>
         )}
       </nav>
+    </div>
+  )
+}
+
+/* ============================================================
+   PROFILE POPUP
+   ============================================================ */
+function ProfilePopup({ profile, onClose, onSignOut, onChangeUser, onProfileUpdated, roleLabel, roleBadgeClass }) {
+  const [editName, setEditName] = useState(false)
+  const [newName, setNewName] = useState(profile?.full_name || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function saveName() {
+    if (!newName.trim()) return
+    setSaving(true)
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ full_name: newName.trim() })
+      .eq('id', profile.id)
+      .select()
+      .single()
+    setSaving(false)
+    if (error) { setError('Errore nel salvataggio'); return }
+    onProfileUpdated(data)
+  }
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.3)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{
+        position: 'absolute', top: 60, right: 16,
+        background: '#fff', borderRadius: 14, width: 280,
+        boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
+        overflow: 'hidden',
+      }}>
+        {/* Header profilo */}
+        <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a' }}>{profile?.full_name}</span>
+            <span className={`badge ${roleBadgeClass(profile?.role)}`}>{roleLabel(profile?.role)}</span>
+          </div>
+        </div>
+
+        {/* Modifica nome */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+          {!editName ? (
+            <button
+              onClick={() => setEditName(true)}
+              style={{ fontSize: 13, color: '#1a1a1a', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              ✏️ Modifica nome
+            </button>
+          ) : (
+            <div>
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label>Nuovo nome</label>
+                <input
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  autoFocus
+                  onKeyDown={e => e.key === 'Enter' && saveName()}
+                />
+              </div>
+              {error && <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 6 }}>{error}</div>}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveName}
+                  disabled={!newName.trim() || saving}
+                >
+                  {saving ? 'Salvataggio...' : 'Salva'}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setEditName(false); setNewName(profile?.full_name || '') }}>
+                  Annulla
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Azioni */}
+        <div style={{ padding: '8px 8px' }}>
+          <button
+            onClick={onChangeUser}
+            style={{ width: '100%', padding: '9px 12px', textAlign: 'left', fontSize: 13, color: '#1a1a1a', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}
+            onMouseEnter={e => e.currentTarget.style.background = '#f5f5f4'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            🔄 Cambia utente
+          </button>
+          <button
+            onClick={onSignOut}
+            style={{ width: '100%', padding: '9px 12px', textAlign: 'left', fontSize: 13, color: '#b91c1c', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}
+            onMouseEnter={e => e.currentTarget.style.background = '#fef2f2'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            🚪 Esci
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
