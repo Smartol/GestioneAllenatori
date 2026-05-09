@@ -7,19 +7,19 @@ import { getCovColor } from '../hooks/useCalendarData'
 
 export default function EventModal({ event, attendances, onClose, onRefetch, onDelete }) {
   const { profile, isAdmin } = useAuth()
-  const [view, setView] = useState('main') // main | presence | note-form | edit
+  const [view, setView] = useState('main') // main | note-form | edit
   const myAttendance = attendances.find(a => a.coach_id === profile?.id)
 
   const title = event.title || 'Allenamento'
   const rawDate = event.dateStr || event.date || ''
   const dateObj = rawDate ? new Date(rawDate + 'T00:00:00') : new Date()
-  const timeStr = event.start_time?.slice(0,5) || ''
-  const endTimeStr = event.end_time?.slice(0,5) || ''
+  const timeStr = event.start_time?.slice(0, 5) || ''
+  const endTimeStr = event.end_time?.slice(0, 5) || ''
   const subtitle = `${timeStr}${endTimeStr ? ` → ${endTimeStr}` : ''} · ${format(dateObj, 'EEEE d MMMM yyyy', { locale: it })}`
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box">
+      <div className="modal-box" style={{ display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
 
         {/* HEADER */}
         <div className="modal-head">
@@ -36,30 +36,45 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
-        {/* BODY */}
-        <div className="modal-body">
+        {/* BODY scrollabile */}
+        <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
           {view === 'main' && (
-            <MainView
+            <MainBody
               event={event}
               attendances={attendances}
               myAttendance={myAttendance}
               isAdmin={isAdmin}
-              profile={profile}
               onSetView={setView}
               onRefetch={onRefetch}
+            />
+          )}
+          {view === 'note-form' && (
+            <NoteForm
+              event={event}
+              profile={profile}
+              onDone={() => { onRefetch(); setView('main') }}
+              onCancel={() => setView('main')}
+            />
+          )}
+          {view === 'edit' && isAdmin && (
+            <EditInstanceForm
+              event={event}
+              onDone={onRefetch}
+              onCancel={() => setView('main')}
               onDelete={onDelete}
             />
           )}
-          {view === 'presence' && (
-            <PresenceForm event={event} profile={profile} onDone={onRefetch} onCancel={() => setView('main')} />
-          )}
-          {view === 'note-form' && (
-            <NoteForm event={event} profile={profile} onDone={() => { onRefetch(); setView('main') }} onCancel={() => setView('main')} />
-          )}
-          {view === 'edit' && isAdmin && (
-            <EditInstanceForm event={event} onDone={onRefetch} onCancel={() => setView('main')} onDelete={onDelete} />
-          )}
         </div>
+
+        {/* FOOTER ANCORATO — solo in vista main */}
+        {view === 'main' && (
+          <PresenceFooter
+            event={event}
+            profile={profile}
+            myAttendance={myAttendance}
+            onRefetch={onRefetch}
+          />
+        )}
 
       </div>
     </div>
@@ -67,16 +82,14 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
 }
 
 /* ============================================================
-   MAIN VIEW
+   MAIN BODY
    ============================================================ */
-function MainView({ event, attendances, myAttendance, isAdmin, profile, onSetView, onRefetch, onDelete }) {
+function MainBody({ event, attendances, myAttendance, isAdmin, onSetView, onRefetch }) {
   const colLabel = { green: 'Soddisfatta', orange: 'Con jolly / al limite', red: 'Insufficiente' }
-  const [cancelling, setCancelling] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [notes, setNotes] = useState(null)
   const [notesLoading, setNotesLoading] = useState(false)
 
-  // Carica note al mount per avere il contatore
   useEffect(() => { loadNotes() }, [])
 
   async function loadNotes() {
@@ -95,22 +108,11 @@ function MainView({ event, attendances, myAttendance, isAdmin, profile, onSetVie
     setNotesLoading(false)
   }
 
-  async function cancelPresence() {
-    if (!window.confirm('Disdire la tua presenza?')) return
-    setCancelling(true)
-    await supabase.from('attendances').delete().eq('id', myAttendance.id)
-    setCancelling(false)
-    onRefetch()
-  }
-
-  // Ricava il label reale del ruolo di un allenatore
   function slotLabel(a) {
     if (a.is_jolly) return '⭐ Jolly'
     if (a.group_id) {
       const slot = event.slots?.find(s => s.group_id === a.group_id)
-      if (slot?.group) {
-        return slot.group.name || slot.group.category_group_members?.map(m => m.category?.name).join('+') || 'Gruppo'
-      }
+      if (slot?.group) return slot.group.name || slot.group.category_group_members?.map(m => m.category?.name).join('+') || 'Gruppo'
     }
     if (a.category_id) {
       const slot = event.slots?.find(s => s.category_id === a.category_id)
@@ -120,6 +122,7 @@ function MainView({ event, attendances, myAttendance, isAdmin, profile, onSetVie
   }
 
   const noteCount = notes?.length ?? '…'
+  const isMe = (a) => a.coach_id === (myAttendance?.coach_id)
 
   return (
     <>
@@ -136,15 +139,8 @@ function MainView({ event, attendances, myAttendance, isAdmin, profile, onSetVie
           )
         })}
         {myAttendance && (
-          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ marginTop: 8 }}>
             <span className="badge badge-green">✓ Presenza confermata</span>
-            <button
-              onClick={cancelPresence}
-              disabled={cancelling}
-              style={{ fontSize: 11, padding: '3px 9px', borderRadius: 6, background: '#fcd5d5', color: '#b91c1c', border: 'none', cursor: 'pointer', fontWeight: 500 }}
-            >
-              {cancelling ? '...' : 'Disdici'}
-            </button>
           </div>
         )}
       </div>
@@ -154,83 +150,223 @@ function MainView({ event, attendances, myAttendance, isAdmin, profile, onSetVie
         <div className="modal-section-title">Allenatori presenti ({attendances.length})</div>
         {attendances.length === 0
           ? <p style={{ fontSize: 12, color: '#aaa' }}>Nessuna presenza dichiarata.</p>
-          : attendances.map(a => (
-            <div key={a.id} style={{ fontSize: 12, padding: '4px 0', color: '#555', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f5f5f5' }}>
-              <span style={{ fontWeight: 500 }}>{a.coach?.full_name}</span>
-              <span style={{ color: '#888' }}>{slotLabel(a)}</span>
-            </div>
-          ))
+          : attendances.map(a => {
+            const mine = isMe(a)
+            return (
+              <div key={a.id} style={{
+                fontSize: 12, padding: '4px 0', display: 'flex',
+                justifyContent: 'space-between', alignItems: 'center',
+                borderBottom: '1px solid #f5f5f5',
+              }}>
+                <span style={{ fontWeight: mine ? 600 : 500, color: mine ? '#2e7d4f' : '#555' }}>
+                  {a.coach?.full_name}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: mine ? '#2e7d4f' : '#888' }}>{slotLabel(a)}</span>
+                  {mine && <span style={{ color: '#2e7d4f', fontSize: 13 }}>✓</span>}
+                </div>
+              </div>
+            )
+          })
         }
       </div>
 
-      {/* AZIONI */}
+      {/* NOTE */}
       <div className="modal-section">
-        {!myAttendance && (
-          <button className="btn btn-primary btn-sm" onClick={() => onSetView('presence')} style={{ marginBottom: 8 }}>
-            Dichiara presenza
-          </button>
+        <button
+          onClick={() => setNotesOpen(o => !o)}
+          style={{
+            width: '100%', padding: '8px 12px',
+            background: '#f8f8f7', border: '1px solid #e5e5e5',
+            borderRadius: notesOpen ? '8px 8px 0 0' : '8px',
+            fontSize: 13, fontWeight: 500, color: '#555', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}
+        >
+          <span>📝 Note</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              background: noteCount > 0 ? '#1a1a1a' : '#e5e5e5',
+              color: noteCount > 0 ? '#fff' : '#999',
+              borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 600,
+            }}>{notesLoading ? '…' : noteCount}</span>
+            <span style={{ color: '#aaa', fontSize: 12 }}>{notesOpen ? '▴' : '▾'}</span>
+          </div>
+        </button>
+
+        {notesOpen && (
+          <div style={{
+            background: '#f8f8f7', border: '1px solid #e5e5e5', borderTop: 'none',
+            borderRadius: '0 0 8px 8px', padding: '10px 12px',
+          }}>
+            {notes?.length === 0 && (
+              <p style={{ fontSize: 12, color: '#aaa', textAlign: 'center', paddingBottom: 6 }}>Nessuna nota.</p>
+            )}
+            {notes?.map(n => <NoteCard key={n.id} note={n} />)}
+            <button
+              onClick={() => onSetView('note-form')}
+              style={{
+                width: '100%', padding: '7px', background: '#fff',
+                border: '1px dashed #ccc', borderRadius: 7,
+                fontSize: 12, color: '#888', cursor: 'pointer', marginTop: 2,
+              }}
+            >+ Aggiungi nota</button>
+          </div>
         )}
+      </div>
 
-        {/* NOTE — bottone con contatore + pannello espanso */}
-        <div style={{ marginBottom: 8 }}>
-          <button
-            onClick={() => setNotesOpen(o => !o)}
-            style={{
-              width: '100%', padding: '8px 12px',
-              background: '#f8f8f7', border: '1px solid #e5e5e5',
-              borderRadius: notesOpen ? '8px 8px 0 0' : '8px',
-              fontSize: 13, fontWeight: 500, color: '#555', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}
-          >
-            <span>📝 Note</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{
-                background: noteCount > 0 ? '#1a1a1a' : '#e5e5e5',
-                color: noteCount > 0 ? '#fff' : '#999',
-                borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 600,
-              }}>{notesLoading ? '…' : noteCount}</span>
-              <span style={{ color: '#aaa', fontSize: 12 }}>{notesOpen ? '▴' : '▾'}</span>
-            </div>
-          </button>
-
-          {notesOpen && (
-            <div style={{
-              background: '#f8f8f7', border: '1px solid #e5e5e5', borderTop: 'none',
-              borderRadius: '0 0 8px 8px', padding: '10px 12px',
-            }}>
-              {notes?.length === 0 && (
-                <p style={{ fontSize: 12, color: '#aaa', textAlign: 'center', paddingBottom: 6 }}>Nessuna nota.</p>
-              )}
-              {notes?.map(n => (
-                <NoteCard key={n.id} note={n} />
-              ))}
-              <button
-                onClick={() => onSetView('note-form')}
-                style={{
-                  width: '100%', padding: '7px', background: '#fff',
-                  border: '1px dashed #ccc', borderRadius: 7,
-                  fontSize: 12, color: '#888', cursor: 'pointer', marginTop: 2,
-                }}
-              >
-                + Aggiungi nota
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* MODIFICA ISTANZA — solo admin, in fondo */}
-        {isAdmin && event.eventType === 'training' && (
+      {/* MODIFICA ISTANZA — solo admin, dopo le note */}
+      {isAdmin && event.eventType === 'training' && (
+        <div className="modal-section">
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => onSetView('edit')}
-            style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
+            style={{ width: '100%', justifyContent: 'center' }}
           >
             ✏️ Modifica istanza
           </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+/* ============================================================
+   PRESENCE FOOTER — ancorato in basso
+   ============================================================ */
+function PresenceFooter({ event, profile, myAttendance, onRefetch }) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [selectedSlot, setSelectedSlot] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+
+  const slots = (event.slots || []).map(s => {
+    if (s.category) return { key: `cat_${s.category_id}`, label: s.category.name, category_id: s.category_id, group_id: null }
+    if (s.group) {
+      const label = s.group.name || s.group.category_group_members?.map(m => m.category?.name).join('+') || 'Gruppo'
+      return { key: `grp_${s.group_id}`, label, category_id: null, group_id: s.group_id }
+    }
+    return null
+  }).filter(Boolean)
+
+  const allOptions = [...slots, { key: 'jolly', label: '⭐ Jolly' }]
+
+  async function confirmPresence() {
+    if (!selectedSlot) return
+    setSaving(true)
+    const isJolly = selectedSlot.key === 'jolly'
+    const payload = {
+      coach_id: profile.id,
+      is_jolly: isJolly,
+      category_id: isJolly ? null : selectedSlot.category_id,
+      group_id: isJolly ? null : selectedSlot.group_id,
+    }
+    if (event.eventType === 'training') {
+      payload.training_id = event.id
+      payload.instance_date = event.dateStr
+    } else {
+      payload.activity_id = event.id
+    }
+    await supabase.from('attendances').insert(payload)
+    setSaving(false)
+    setDrawerOpen(false)
+    setSelectedSlot(null)
+    onRefetch()
+  }
+
+  async function cancelPresence() {
+    if (!window.confirm('Disdire la tua presenza?')) return
+    setCancelling(true)
+    await supabase.from('attendances').delete().eq('id', myAttendance.id)
+    setCancelling(false)
+    onRefetch()
+  }
+
+  return (
+    <div style={{ borderTop: '1px solid #f0f0f0', background: '#fff' }}>
+
+      {/* DRAWER selezione gruppo */}
+      {drawerOpen && !myAttendance && (
+        <div style={{
+          padding: '12px 16px 10px',
+          background: '#f8f8f7',
+          borderTop: '1px solid #e5e5e5',
+        }}>
+          <div style={{ fontSize: 12, color: '#666', fontWeight: 500, marginBottom: 10 }}>
+            Per quale gruppo sei presente?
+          </div>
+          <div className="chip-group" style={{ marginBottom: 12 }}>
+            {allOptions.map(opt => (
+              <div
+                key={opt.key}
+                className={`chip${selectedSlot?.key === opt.key ? ' selected' : ''}`}
+                onClick={() => setSelectedSlot(opt)}
+              >
+                {opt.label}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { setDrawerOpen(false); setSelectedSlot(null) }}
+              style={{
+                flex: 1, padding: '10px', background: '#fff',
+                border: '1.5px solid #ddd', borderRadius: 8,
+                fontSize: 13, fontWeight: 500, color: '#555', cursor: 'pointer',
+              }}
+            >
+              Annulla
+            </button>
+            <button
+              onClick={confirmPresence}
+              disabled={!selectedSlot || saving}
+              style={{
+                flex: 2, padding: '10px',
+                background: selectedSlot ? '#2e7d4f' : '#e5e5e5',
+                border: 'none', borderRadius: 8,
+                fontSize: 13, fontWeight: 600,
+                color: selectedSlot ? '#fff' : '#aaa',
+                cursor: selectedSlot ? 'pointer' : 'default',
+                transition: 'background 0.15s',
+              }}
+            >
+              {saving ? 'Salvataggio...' : '✓ Ci sono!'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TASTO PRINCIPALE */}
+      <div style={{ padding: '10px 16px 14px' }}>
+        {myAttendance ? (
+          <button
+            onClick={cancelPresence}
+            disabled={cancelling}
+            style={{
+              width: '100%', padding: '11px',
+              background: '#fcd5d5', border: 'none', borderRadius: 10,
+              fontSize: 14, fontWeight: 600, color: '#b91c1c',
+              cursor: 'pointer',
+            }}
+          >
+            {cancelling ? 'Annullamento...' : 'Disdici presenza'}
+          </button>
+        ) : (
+          <button
+            onClick={() => setDrawerOpen(o => !o)}
+            style={{
+              width: '100%', padding: '11px',
+              background: drawerOpen ? '#333' : '#1a1a1a',
+              border: 'none', borderRadius: drawerOpen ? '0 0 10px 10px' : 10,
+              fontSize: 14, fontWeight: 600, color: '#fff',
+              cursor: 'pointer',
+            }}
+          >
+            {drawerOpen ? '▴ Annulla' : 'Dichiara presenza'}
+          </button>
         )}
       </div>
-    </>
+    </div>
   )
 }
 
@@ -252,77 +388,6 @@ function NoteCard({ note }) {
           })}
         </div>
       )}
-    </div>
-  )
-}
-
-/* ============================================================
-   PRESENCE FORM
-   ============================================================ */
-function PresenceForm({ event, profile, onDone, onCancel }) {
-  const [selectedSlot, setSelectedSlot] = useState(null)
-  const [saving, setSaving] = useState(false)
-
-  const slots = (event.slots || []).map(s => {
-    if (s.category) return { key: `cat_${s.category_id}`, label: s.category.name, category_id: s.category_id, group_id: null }
-    if (s.group) {
-      const label = s.group.name || s.group.category_group_members?.map(m => m.category?.name).join('+') || 'Gruppo'
-      return { key: `grp_${s.group_id}`, label, category_id: null, group_id: s.group_id }
-    }
-    return null
-  }).filter(Boolean)
-
-  const allOptions = [...slots, { key: 'jolly', label: '⭐ Jolly' }]
-
-  async function confirm() {
-    if (!selectedSlot) return
-    setSaving(true)
-    const isJolly = selectedSlot.key === 'jolly'
-    const payload = {
-      coach_id: profile.id,
-      is_jolly: isJolly,
-      category_id: isJolly ? null : selectedSlot.category_id,
-      group_id: isJolly ? null : selectedSlot.group_id,
-    }
-    if (event.eventType === 'training') {
-      payload.training_id = event.id
-      payload.instance_date = event.dateStr
-    } else {
-      payload.activity_id = event.id
-    }
-    await supabase.from('attendances').insert(payload)
-    setSaving(false)
-    onDone()
-  }
-
-  return (
-    <div>
-      <div className="info-banner">
-        Seleziona il gruppo/categoria per cui sei presente, oppure scegli Jolly.
-      </div>
-      <div className="field">
-        <label>Ruolo per questo allenamento</label>
-        <div className="chip-group">
-          {allOptions.map(opt => (
-            <div key={opt.key}
-              className={`chip${selectedSlot?.key === opt.key ? ' selected' : ''}`}
-              onClick={() => setSelectedSlot(opt)}>
-              {opt.label}
-            </div>
-          ))}
-        </div>
-      </div>
-      {selectedSlot?.key === 'jolly' && (
-        <p style={{ fontSize: 12, color: '#888', marginBottom: 12, background: '#f8f8f7', borderRadius: 8, padding: '8px 10px' }}>
-          Il jolly verrà conteggiato come +1 nel gruppo che non raggiunge il minimo.
-        </p>
-      )}
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <button className="btn btn-primary btn-sm" onClick={confirm} disabled={!selectedSlot || saving}>
-          {saving ? 'Salvataggio...' : 'Conferma'}
-        </button>
-        <button className="btn btn-secondary btn-sm" onClick={onCancel}>Annulla</button>
-      </div>
     </div>
   )
 }
@@ -400,7 +465,7 @@ function NoteForm({ event, profile, onDone, onCancel }) {
 }
 
 /* ============================================================
-   EDIT INSTANCE FORM — con Salta / Elimina in fondo
+   EDIT INSTANCE FORM
    ============================================================ */
 function EditInstanceForm({ event, onDone, onCancel, onDelete }) {
   const [allCats, setAllCats] = useState([])
@@ -473,8 +538,7 @@ function EditInstanceForm({ event, onDone, onCancel, onDelete }) {
   }
 
   async function handleSkipDate() {
-    const msg = `Saltare questa data?`
-    if (!window.confirm(msg)) return
+    if (!window.confirm('Saltare questa data?')) return
     await supabase.from('training_instance_exceptions').insert({
       training_id: event.id,
       instance_date: event.dateStr,
@@ -546,7 +610,6 @@ function EditInstanceForm({ event, onDone, onCancel, onDelete }) {
         </div>
       )}
 
-      {/* Tasti salva / annulla */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <button className="btn btn-primary btn-sm" onClick={save} disabled={!selected.length || saving}>
           {saving ? 'Salvataggio...' : 'Salva istanza'}
@@ -554,20 +617,15 @@ function EditInstanceForm({ event, onDone, onCancel, onDelete }) {
         <button className="btn btn-secondary btn-sm" onClick={onCancel}>Annulla</button>
       </div>
 
-      {/* Separatore + azioni pericolose */}
       <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 14 }}>
         <div style={{ fontSize: 11, color: '#aaa', marginBottom: 8 }}>Azioni sull'intera ricorrenza</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            onClick={handleSkipDate}
-            style={{ padding: '6px 12px', background: '#fff', border: '1.5px solid #b8610a', color: '#b8610a', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
-          >
+          <button onClick={handleSkipDate}
+            style={{ padding: '6px 12px', background: '#fff', border: '1.5px solid #b8610a', color: '#b8610a', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
             🚫 Salta questa data
           </button>
-          <button
-            onClick={handleDeleteAll}
-            style={{ padding: '6px 12px', background: '#fcd5d5', border: 'none', color: '#b91c1c', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
-          >
+          <button onClick={handleDeleteAll}
+            style={{ padding: '6px 12px', background: '#fcd5d5', border: 'none', color: '#b91c1c', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
             🗑 Elimina tutto
           </button>
         </div>
