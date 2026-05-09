@@ -1,6 +1,28 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns'
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, isSameDay, addDays, format } from 'date-fns'
+
+const TODAY = new Date()
+
+// Replica esatta della logica di CalendarPage per calcolare i giorni mostrati
+function getWeekRange(currentDate) {
+  const todayStart = startOfDay(TODAY)
+  const refStart = startOfDay(currentDate)
+
+  if (isSameDay(refStart, todayStart)) {
+    // Vista "Oggi": oggi + 6 giorni
+    const start = TODAY
+    const end = addDays(TODAY, 6)
+    return { rangeStart: start, rangeEnd: end }
+  } else {
+    // Altre settimane: lunedì–domenica
+    const mon = startOfWeek(currentDate, { weekStartsOn: 1 })
+    return {
+      rangeStart: mon,
+      rangeEnd: addDays(mon, 6),
+    }
+  }
+}
 
 export function useCalendarData(currentDate, view) {
   const [trainings, setTrainings] = useState([])
@@ -14,12 +36,16 @@ export function useCalendarData(currentDate, view) {
 
   async function fetchData() {
     setLoading(true)
-    const rangeStart = view === 'week'
-      ? startOfWeek(currentDate, { weekStartsOn: 1 })
-      : startOfMonth(currentDate)
-    const rangeEnd = view === 'week'
-      ? endOfWeek(currentDate, { weekStartsOn: 1 })
-      : endOfMonth(currentDate)
+
+    let rangeStart, rangeEnd
+    if (view === 'week') {
+      const range = getWeekRange(currentDate)
+      rangeStart = range.rangeStart
+      rangeEnd = range.rangeEnd
+    } else {
+      rangeStart = startOfMonth(currentDate)
+      rangeEnd = endOfMonth(currentDate)
+    }
 
     const startStr = format(rangeStart, 'yyyy-MM-dd')
     const endStr = format(rangeEnd, 'yyyy-MM-dd')
@@ -88,8 +114,6 @@ export function useCalendarData(currentDate, view) {
   return { trainings, activities, attendances, overrides, exceptions, loading, refetch: fetchData }
 }
 
-// Calcola la copertura per colore (rosso/arancione/verde)
-// Supporta sia categorie singole che gruppi
 export function computeCoverage(slots, attendances) {
   const result = {}
   if (!slots) return result
