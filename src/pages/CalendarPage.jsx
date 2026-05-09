@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { addDays, addMonths, subMonths, format, isSameDay, getDay, startOfWeek, isBefore, startOfDay } from 'date-fns'
+import { addDays, addMonths, subMonths, startOfWeek, format, isSameDay, getDay, isBefore, startOfDay } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { useCalendarData, computeCoverage, getCovColor } from '../hooks/useCalendarData'
 import EventModal from '../components/EventModal'
@@ -12,6 +12,19 @@ function timeToMinutes(t) {
   return h * 60 + m
 }
 
+// Settimana corrente: oggi + 6 giorni
+// Altre settimane: lun–dom
+function getWeekDays(referenceDate) {
+  const todayStart = startOfDay(TODAY)
+  const refStart = startOfDay(referenceDate)
+  const isCurrent = isSameDay(refStart, todayStart)
+  if (isCurrent) {
+    return Array.from({ length: 7 }, (_, i) => addDays(TODAY, i))
+  }
+  const mon = startOfWeek(referenceDate, { weekStartsOn: 1 })
+  return Array.from({ length: 7 }, (_, i) => addDays(mon, i))
+}
+
 export default function CalendarPage() {
   const [view, setView] = useState('week')
   const [currentDate, setCurrentDate] = useState(TODAY)
@@ -20,14 +33,32 @@ export default function CalendarPage() {
   const { trainings, activities, attendances, overrides, exceptions, loading, refetch } = useCalendarData(currentDate, view)
 
   function navigate(dir) {
-    if (view === 'week') setCurrentDate(d => addDays(d, dir * 7))
-    else setCurrentDate(d => dir > 0 ? addMonths(d, 1) : subMonths(d, 1))
+    if (view === 'week') {
+      setCurrentDate(d => {
+        const todayStart = startOfDay(TODAY)
+        const dStart = startOfDay(d)
+        if (isSameDay(dStart, todayStart) && dir > 0) {
+          // dalla settimana corrente (oggi+6) → vai al prossimo lunedì
+          const nextMon = startOfWeek(addDays(TODAY, 7), { weekStartsOn: 1 })
+          return nextMon
+        }
+        const mon = startOfWeek(d, { weekStartsOn: 1 })
+        return addDays(mon, dir * 7)
+      })
+    } else {
+      setCurrentDate(d => dir > 0 ? addMonths(d, 1) : subMonths(d, 1))
+    }
+  }
+
+  function goToCurrentWeek() {
+    setCurrentDate(TODAY)
   }
 
   function periodLabel() {
     if (view === 'week') {
-      const end = addDays(currentDate, 6)
-      return `${format(currentDate, 'd MMM', { locale: it })} – ${format(end, 'd MMM yyyy', { locale: it })}`
+      const days = getWeekDays(currentDate)
+      const first = days[0], last = days[6]
+      return `${format(first, 'd MMM', { locale: it })} – ${format(last, 'd MMM yyyy', { locale: it })}`
     }
     return format(currentDate, 'MMMM yyyy', { locale: it })
   }
@@ -74,22 +105,31 @@ export default function CalendarPage() {
 
   if (loading) return <div className="spinner">Caricamento calendario...</div>
 
+  const isCurrentWeek = isSameDay(startOfDay(currentDate), startOfDay(TODAY))
+
   return (
     <div>
-      {/* Header */}
+      {/* Header navigazione */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate(-1)}>
-            {view === 'week' ? '↑' : '‹'}
-          </button>
-          <span style={{ fontSize: 14, fontWeight: 500, minWidth: 160, textAlign: 'center' }}>{periodLabel()}</span>
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate(1)}>
-            {view === 'week' ? '↓' : '›'}
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate(-1)}>↑</button>
+          <span style={{ fontSize: 13, fontWeight: 500, minWidth: 170, textAlign: 'center', color: '#1a1a1a' }}>
+            {periodLabel()}
+          </span>
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate(1)}>↓</button>
+          {!isCurrentWeek && view === 'week' && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={goToCurrentWeek}
+              style={{ fontSize: 11, color: '#1a1a1a' }}
+            >
+              Oggi
+            </button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 4, background: '#f0f0ee', borderRadius: 8, padding: 3 }}>
           {['week', 'month'].map(v => (
-            <button key={v} onClick={() => { setView(v); setCurrentDate(TODAY) }} style={{
+            <button key={v} onClick={() => { setView(v); if (v === 'week') setCurrentDate(TODAY) }} style={{
               padding: '4px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
               background: view === v ? '#fff' : 'transparent',
               fontWeight: view === v ? 600 : 400,
@@ -103,8 +143,17 @@ export default function CalendarPage() {
       </div>
 
       {view === 'week'
-        ? <WeekView startDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} />
-        : <MonthView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} />
+        ? <WeekView
+            currentDate={currentDate}
+            getEventsForDay={getEventsForDay}
+            onEventClick={setSelectedEvent}
+            getWeekDays={getWeekDays}
+          />
+        : <MonthView
+            currentDate={currentDate}
+            getEventsForDay={getEventsForDay}
+            onEventClick={setSelectedEvent}
+          />
       }
 
       <div className="cal-legend" style={{ marginTop: 12 }}>
@@ -133,98 +182,148 @@ export default function CalendarPage() {
 }
 
 /* ============================================================
-   WEEK VIEW — verticale, oggi + 6 giorni
+   WEEK VIEW — verticale con colonna giorno a sinistra
    ============================================================ */
-function WeekView({ startDate, getEventsForDay, onEventClick }) {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(startDate, i))
-  const todayStart = startOfDay(new Date())
+function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
+  const days = getWeekDays(currentDate)
+  const todayStart = startOfDay(TODAY)
+
+  // Raggruppa i giorni per settimana (lun–dom) per mostrare il separatore
+  const grouped = []
+  let currentGroup = []
+  days.forEach((d, i) => {
+    currentGroup.push(d)
+    const isLastDay = i === days.length - 1
+    const isSunday = getDay(d) === 0
+    if (isSunday || isLastDay) {
+      grouped.push([...currentGroup])
+      currentGroup = []
+    }
+  })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {days.map((d, i) => {
-        const isToday = isSameDay(d, new Date())
-        const isPast = isBefore(startOfDay(d), todayStart)
-        const evs = getEventsForDay(d)
-        const dayLabel = format(d, 'EEEE d MMMM', { locale: it })
-
-        return (
-          <div key={i} style={{
-            border: `1px solid ${isToday ? '#1a1a1a' : '#e5e5e5'}`,
-            borderRadius: 12,
-            overflow: 'hidden',
-            opacity: isPast ? 0.6 : 1,
-          }}>
-            {/* Header giorno */}
-            <div style={{
-              padding: '8px 12px',
-              background: isToday ? '#1a1a1a' : isPast ? '#f5f5f4' : '#f8f8f7',
-              display: 'flex', alignItems: 'center', gap: 10,
-              borderBottom: evs.length > 0 ? '1px solid #e5e5e5' : 'none',
-            }}>
-              <div style={{
-                fontSize: 13, fontWeight: 600,
-                color: isToday ? '#fff' : isPast ? '#aaa' : '#1a1a1a',
-                textTransform: 'capitalize',
-              }}>
-                {dayLabel}
-              </div>
-              {evs.length === 0 && (
-                <span style={{ fontSize: 11, color: isToday ? 'rgba(255,255,255,0.6)' : '#ccc' }}>
-                  Nessun evento
-                </span>
-              )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {grouped.map((group, gi) => (
+        <div key={gi}>
+          {/* Separatore settimana — solo tra gruppi, non prima del primo */}
+          {gi > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }}>
+              <div style={{ flex: 1, height: 2, background: '#1a1a1a', borderRadius: 1 }} />
+              <span style={{ fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                settimana successiva
+              </span>
+              <div style={{ flex: 1, height: 2, background: '#1a1a1a', borderRadius: 1 }} />
             </div>
+          )}
 
-            {/* Eventi del giorno */}
-            {evs.length > 0 && (
-              <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {evs.map(ev => {
-                  const color = getCovColor(ev.coverage)
-                  const isActivity = ev.eventType === 'activity'
-                  const borderColor = isPast ? '#bbb'
-                    : isActivity ? '#6b1a2a'
-                    : color === 'green' ? '#2e7d4f'
-                    : color === 'orange' ? '#b8610a' : '#b91c1c'
-                  const bgColor = isPast ? '#f0f0f0'
-                    : isActivity ? '#f5e6e9'
-                    : color === 'green' ? '#d4edda'
-                    : color === 'orange' ? '#fde8c8' : '#fcd5d5'
-                  const textColor = isPast ? '#999' : '#1a1a1a'
+          {/* Giorni del gruppo */}
+          {group.map((d, di) => {
+            const isToday = isSameDay(d, TODAY)
+            const isPast = isBefore(startOfDay(d), todayStart)
+            const evs = getEventsForDay(d)
+            const dayName = format(d, 'EEE', { locale: it }).toUpperCase()
+            const dayNum = format(d, 'd')
+            const monthName = format(d, 'MMM', { locale: it })
 
-                  return (
-                    <div
-                      key={ev.id + ev.eventType}
-                      onClick={() => onEventClick(ev)}
-                      style={{
-                        borderRadius: 8, padding: '7px 10px',
-                        cursor: 'pointer',
-                        borderLeft: `3px solid ${borderColor}`,
-                        background: bgColor,
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        gap: 8,
-                      }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: textColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {ev.title || 'Allenamento'}{isActivity ? ' ★' : ''}
-                        </div>
-                        {ev.coachNames?.length > 0 && (
-                          <div style={{ fontSize: 11, color: isPast ? '#aaa' : '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {ev.coachNames.join(', ')}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 11, color: isPast ? '#aaa' : '#888', flexShrink: 0 }}>
-                        {ev.start_time?.slice(0,5)}{ev.end_time ? ` → ${ev.end_time?.slice(0,5)}` : ''}
-                      </div>
+            return (
+              <div
+                key={di}
+                style={{
+                  display: 'flex',
+                  border: isToday ? '2px solid #1a1a1a' : '1px solid #e5e5e5',
+                  borderRadius: 10,
+                  overflow: 'hidden',
+                  marginBottom: 4,
+                  opacity: isPast ? 0.65 : 1,
+                }}
+              >
+                {/* Colonna giorno */}
+                <div style={{
+                  width: 72, minWidth: 72,
+                  background: isToday ? '#1a1a1a' : isPast ? '#f5f5f4' : '#f8f8f7',
+                  padding: '8px 10px',
+                  display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: isToday ? 'rgba(255,255,255,0.65)' : '#aaa' }}>
+                    {dayName}
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 500, lineHeight: 1.1, color: isToday ? '#fff' : isPast ? '#bbb' : '#1a1a1a' }}>
+                    {dayNum}
+                  </div>
+                  <div style={{ fontSize: 10, color: isToday ? 'rgba(255,255,255,0.5)' : '#ccc' }}>
+                    {monthName}
+                  </div>
+                  {isToday && (
+                    <div style={{ marginTop: 4, fontSize: 9, background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 4, padding: '1px 4px', display: 'inline-block', textAlign: 'center' }}>
+                      oggi
                     </div>
-                  )
-                })}
+                  )}
+                </div>
+
+                {/* Area eventi */}
+                <div style={{
+                  flex: 1, padding: evs.length > 0 ? '6px 8px' : '0 8px',
+                  background: '#fff',
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                  justifyContent: evs.length === 0 ? 'center' : 'flex-start',
+                  minHeight: 52,
+                }}>
+                  {evs.length === 0 ? (
+                    <span style={{ fontSize: 11, color: '#ddd' }}>Nessun evento</span>
+                  ) : evs.map(ev => {
+                    const color = getCovColor(ev.coverage)
+                    const isActivity = ev.eventType === 'activity'
+                    const borderColor = isPast ? '#ccc'
+                      : isActivity ? '#6b1a2a'
+                      : color === 'green' ? '#2e7d4f'
+                      : color === 'orange' ? '#b8610a' : '#b91c1c'
+                    const bgColor = isPast ? '#f0f0f0'
+                      : isActivity ? '#f5e6e9'
+                      : color === 'green' ? '#d4edda'
+                      : color === 'orange' ? '#fde8c8' : '#fcd5d5'
+                    const coachColor = isPast ? '#aaa'
+                      : isActivity ? '#6b1a2a'
+                      : color === 'green' ? '#2e7d4f'
+                      : color === 'orange' ? '#b8610a' : '#b91c1c'
+
+                    return (
+                      <div
+                        key={ev.id + ev.eventType}
+                        onClick={() => onEventClick(ev)}
+                        style={{
+                          borderRadius: 6, padding: '5px 8px', cursor: 'pointer',
+                          borderLeft: `3px solid ${borderColor}`,
+                          background: bgColor,
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: isPast ? '#999' : '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {ev.title || 'Allenamento'}{isActivity ? ' ★' : ''}
+                          </div>
+                          {ev.coachNames?.length > 0 && (
+                            <div style={{ fontSize: 10, color: coachColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {ev.coachNames.join(', ')}
+                            </div>
+                          )}
+                          {ev.coachNames?.length === 0 && !isPast && (
+                            <div style={{ fontSize: 10, color: '#bbb' }}>Nessuna presenza</div>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: isPast ? '#bbb' : '#888', flexShrink: 0, textAlign: 'right' }}>
+                          {ev.start_time?.slice(0,5)}
+                          {ev.end_time && <><br /><span style={{ fontSize: 10 }}>→ {ev.end_time?.slice(0,5)}</span></>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            )}
-          </div>
-        )
-      })}
+            )
+          })}
+        </div>
+      ))}
     </div>
   )
 }
@@ -232,14 +331,14 @@ function WeekView({ startDate, getEventsForDay, onEventClick }) {
 /* ============================================================
    MONTH VIEW
    ============================================================ */
-const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
+const DAYS_SHORT = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 
 function MonthView({ currentDate, getEventsForDay, onEventClick }) {
   const y = currentDate.getFullYear(), m = currentDate.getMonth()
   const first = new Date(y, m, 1)
   const fd = getDay(first) === 0 ? 7 : getDay(first)
   const start = new Date(first); start.setDate(start.getDate() - (fd - 1))
-  const todayStart = startOfDay(new Date())
+  const todayStart = startOfDay(TODAY)
 
   const cells = Array.from({ length: 42 }, (_, i) => {
     const d = new Date(start); d.setDate(start.getDate() + i); return d
@@ -248,18 +347,20 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
   return (
     <div style={{ border: '1px solid #e5e5e5', borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
-        {DAYS.map(d => (
+        {DAYS_SHORT.map(d => (
           <div key={d} style={{ textAlign: 'center', padding: '6px 2px', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', background: '#f8f8f7', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #e5e5e5' }}>{d}</div>
         ))}
         {cells.map((d, i) => {
           const isThisMonth = d.getMonth() === m
-          const isToday = isSameDay(d, new Date())
+          const isToday = isSameDay(d, TODAY)
           const isPast = isBefore(startOfDay(d), todayStart)
           const evs = getEventsForDay(d)
+          // Domenica = fine settimana → bordo destro più marcato
+          const isSunday = getDay(d) === 0
           return (
             <div key={i} style={{
               minHeight: 72, padding: 3,
-              borderRight: (i + 1) % 7 !== 0 ? '1px solid #e5e5e5' : 'none',
+              borderRight: isSunday ? '3px solid #1a1a1a' : ((i + 1) % 7 !== 0 ? '1px solid #e5e5e5' : 'none'),
               borderBottom: '1px solid #e5e5e5',
               background: isPast ? '#fafafa' : '#fff',
             }}>
@@ -267,7 +368,7 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
                 fontSize: 11, fontWeight: 500, width: 20, height: 20, borderRadius: '50%',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2,
                 background: isToday ? '#1a1a1a' : 'transparent',
-                color: isToday ? '#fff' : isThisMonth ? (isPast ? '#bbb' : '#555') : '#ddd',
+                color: isToday ? '#fff' : isThisMonth ? (isPast ? '#ccc' : '#555') : '#ddd',
               }}>{d.getDate()}</div>
               {evs.map(ev => {
                 const color = getCovColor(ev.coverage)
@@ -276,14 +377,11 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
                   : isActivity ? '#f5e6e9'
                   : color === 'green' ? '#d4edda'
                   : color === 'orange' ? '#fde8c8' : '#fcd5d5'
-                const fg = isPast ? '#999'
+                const fg = isPast ? '#aaa'
                   : isActivity ? '#6b1a2a'
                   : color === 'green' ? '#2e7d4f'
                   : color === 'orange' ? '#b8610a' : '#b91c1c'
-                const border = isPast ? '#ccc'
-                  : isActivity ? '#6b1a2a'
-                  : color === 'green' ? '#2e7d4f'
-                  : color === 'orange' ? '#b8610a' : '#b91c1c'
+                const border = isPast ? '#ccc' : fg
                 return (
                   <div key={ev.id + ev.eventType}
                     style={{
