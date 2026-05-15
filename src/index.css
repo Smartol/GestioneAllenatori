@@ -41,7 +41,7 @@ input, select, textarea { font-family: inherit; }
   justify-content: space-between;
   padding: 0 16px;
   height: 52px;
-  background: #1a1a1a;
+  background: var(--color-primary);
   border-bottom: none;
   position: sticky;
   top: 0;
