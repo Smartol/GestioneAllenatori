@@ -54,7 +54,7 @@ export default function AppShell() {
 
       {/* Topbar */}
       <header className="topbar">
-        <span className="topbar-brand">GS Calendario</span>
+        <span className="topbar-brand">Scuola Ovale - Gestione Attività</span>
         <div className="topbar-right">
           <button
             onClick={() => setShowProfile(true)}
