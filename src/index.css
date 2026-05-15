@@ -1,4 +1,21 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ============================================================
+   THEME COLORS
+   ============================================================ */
+:root {
+  --color-brown: #3d2817;
+  --color-purple: #4c1d95;
+  --color-green: #1b4332;
+  --color-black: #000000;
+  --color-red: #A1292E;
+  --color-primary: var(--color-brown);
+}
+
+.theme-purple { --color-primary: var(--color-purple); }
+.theme-green { --color-primary: var(--color-green); }
+.theme-black { --color-primary: var(--color-black); }
+.theme-red { --color-primary: var(--color-red); }
+/*============================================================*/
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
