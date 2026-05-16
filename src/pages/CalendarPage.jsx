@@ -12,8 +12,6 @@ function timeToMinutes(t) {
   return h * 60 + m
 }
 
-// Settimana corrente: oggi + 6 giorni
-// Altre settimane: lun–dom
 function getWeekDays(referenceDate) {
   const todayStart = startOfDay(TODAY)
   const refStart = startOfDay(referenceDate)
@@ -30,7 +28,7 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(TODAY)
   const [selectedEvent, setSelectedEvent] = useState(null)
 
-  const { trainings, activities, attendances, overrides, exceptions, loading, refetch } = useCalendarData(currentDate, view)
+  const { events, attendances, loading, refetch } = useCalendarData(currentDate, view)
 
   function navigate(dir) {
     if (view === 'week') {
@@ -38,7 +36,6 @@ export default function CalendarPage() {
         const todayStart = startOfDay(TODAY)
         const dStart = startOfDay(d)
         if (isSameDay(dStart, todayStart) && dir > 0) {
-          // dalla settimana corrente (oggi+6) → vai al prossimo lunedì
           const nextMon = startOfWeek(addDays(TODAY, 7), { weekStartsOn: 1 })
           return nextMon
         }
@@ -50,9 +47,7 @@ export default function CalendarPage() {
     }
   }
 
-  function goToCurrentWeek() {
-    setCurrentDate(TODAY)
-  }
+  function goToCurrentWeek() { setCurrentDate(TODAY) }
 
   function periodLabel() {
     if (view === 'week') {
@@ -63,44 +58,26 @@ export default function CalendarPage() {
     return format(currentDate, 'MMMM yyyy', { locale: it })
   }
 
-  function isException(trainingId, dateStr) {
-    return exceptions.some(e => e.training_id === trainingId && e.instance_date === dateStr)
-  }
-
-  function isInRange(training, dateStr) {
-    if (training.start_date && dateStr < training.start_date) return false
-    if (training.end_date && dateStr > training.end_date) return false
-    return true
-  }
-
+  // Raggruppa gli eventi per data
   function getEventsForDay(date) {
-    const dow = getDay(date) === 0 ? 7 : getDay(date)
     const dateStr = format(date, 'yyyy-MM-dd')
-    const result = []
+    const dayEvents = (events || []).filter(ev => ev.dateStr === dateStr)
 
-    trainings.forEach(t => {
-      if (t.day_of_week !== dow) return
-      if (!isInRange(t, dateStr)) return
-      if (isException(t.id, dateStr)) return
-      const override = overrides.find(o => o.training_id === t.id && o.instance_date === dateStr)
-      const slots = override ? override.instance_override_categories : t.recurring_training_categories
-      const att = attendances.filter(a => a.training_id === t.id && a.instance_date === dateStr)
-      const coverage = computeCoverage(slots, att)
-      const coachNames = att.map(a => a.coach?.full_name).filter(Boolean)
-      result.push({ ...t, eventType: 'training', date, dateStr, slots, coverage, override, coachNames })
-    })
-
-    activities.forEach(act => {
-      if (isSameDay(new Date(act.date + 'T00:00:00'), date)) {
-        const att = attendances.filter(a => a.activity_id === act.id)
-        const coverage = computeCoverage(act.activity_categories, att)
-        const coachNames = att.map(a => a.coach?.full_name).filter(Boolean)
-        result.push({ ...act, eventType: 'activity', date, dateStr: act.date, slots: act.activity_categories, coverage, coachNames })
+    return dayEvents.map(ev => {
+      let att = []
+      if (ev.eventType === 'school') {
+        // Per scuole, filtra per school_class_instance_id
+        att = attendances.filter(a => 
+          ev.classBlock?.some(cls => cls.id === a.school_class_instance_id)
+        )
+      } else {
+        // Per altri eventi, filtra per instance_id
+        att = attendances.filter(a => a.instance_id === ev.instance_id)
       }
-    })
-
-    result.sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time))
-    return result
+      const coverage = computeCoverage(ev.slots, att)
+      const coachNames = att.map(a => a.coach?.full_name).filter(Boolean)
+      return { ...ev, coverage, coachNames }
+    }).sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time))
   }
 
   if (loading) return <div className="spinner">Caricamento calendario...</div>
@@ -118,11 +95,7 @@ export default function CalendarPage() {
           </span>
           <button className="btn btn-secondary btn-sm" onClick={() => navigate(1)}>↓</button>
           {!isCurrentWeek && view === 'week' && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={goToCurrentWeek}
-              style={{ fontSize: 11, color: '#1a1a1a' }}
-            >
+            <button className="btn btn-secondary btn-sm" onClick={goToCurrentWeek} style={{ fontSize: 11 }}>
               Oggi
             </button>
           )}
@@ -143,17 +116,8 @@ export default function CalendarPage() {
       </div>
 
       {view === 'week'
-        ? <WeekView
-            currentDate={currentDate}
-            getEventsForDay={getEventsForDay}
-            onEventClick={setSelectedEvent}
-            getWeekDays={getWeekDays}
-          />
-        : <MonthView
-            currentDate={currentDate}
-            getEventsForDay={getEventsForDay}
-            onEventClick={setSelectedEvent}
-          />
+        ? <WeekView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} getWeekDays={getWeekDays} attendances={attendances} />
+        : <MonthView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} />
       }
 
       <div className="cal-legend" style={{ marginTop: 12 }}>
@@ -167,11 +131,16 @@ export default function CalendarPage() {
       {selectedEvent && (
         <EventModal
           event={selectedEvent}
-          attendances={attendances.filter(a =>
-            selectedEvent.eventType === 'training'
-              ? a.training_id === selectedEvent.id && a.instance_date === selectedEvent.dateStr
-              : a.activity_id === selectedEvent.id
-          )}
+          attendances={
+            selectedEvent.eventType === 'school'
+              // Per scuola: tutte le presenze per le classi di quel giorno
+              ? attendances.filter(a =>
+                  (selectedEvent.allClassesForDate || selectedEvent.classBlock || [])
+                    .some(cls => a.school_class_instance_id === cls.id)
+                  || a.is_jolly
+                )
+              : attendances.filter(a => a.instance_id === selectedEvent.instance_id)
+          }
           onClose={() => setSelectedEvent(null)}
           onRefetch={() => { refetch(); setSelectedEvent(null) }}
           onDelete={() => { refetch(); setSelectedEvent(null) }}
@@ -182,13 +151,12 @@ export default function CalendarPage() {
 }
 
 /* ============================================================
-   WEEK VIEW — verticale con colonna giorno a sinistra
+   WEEK VIEW
    ============================================================ */
-function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
+function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, attendances }) {
   const days = getWeekDays(currentDate)
   const todayStart = startOfDay(TODAY)
 
-  // Raggruppa i giorni per settimana (lun–dom) per mostrare il separatore
   const grouped = []
   let currentGroup = []
   days.forEach((d, i) => {
@@ -205,7 +173,6 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {grouped.map((group, gi) => (
         <div key={gi}>
-          {/* Separatore settimana — solo tra gruppi, non prima del primo */}
           {gi > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }}>
               <div style={{ flex: 1, height: 2, background: '#1a1a1a', borderRadius: 1 }} />
@@ -216,7 +183,6 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
             </div>
           )}
 
-          {/* Giorni del gruppo */}
           {group.map((d, di) => {
             const isToday = isSameDay(d, TODAY)
             const isPast = isBefore(startOfDay(d), todayStart)
@@ -226,17 +192,12 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
             const monthName = format(d, 'MMM', { locale: it })
 
             return (
-              <div
-                key={di}
-                style={{
-                  display: 'flex',
-                  border: isToday ? '2px solid #1a1a1a' : '1px solid #e5e5e5',
-                  borderRadius: 10,
-                  overflow: 'hidden',
-                  marginBottom: 4,
-                  opacity: isPast ? 0.65 : 1,
-                }}
-              >
+              <div key={di} style={{
+                display: 'flex',
+                border: isToday ? '2px solid #1a1a1a' : '1px solid #e5e5e5',
+                borderRadius: 10, overflow: 'hidden', marginBottom: 4,
+                opacity: isPast ? 0.65 : 1,
+              }}>
                 {/* Colonna giorno */}
                 <div style={{
                   width: 72, minWidth: 72,
@@ -255,7 +216,7 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
                     {monthName}
                   </div>
                   {isToday && (
-                    <div style={{ marginTop: 4, fontSize: 9, background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 4, padding: '1px 4px', display: 'inline-block', textAlign: 'center' }}>
+                    <div style={{ marginTop: 4, fontSize: 9, background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 4, padding: '1px 4px', textAlign: 'center' }}>
                       oggi
                     </div>
                   )}
@@ -273,7 +234,7 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
                     <span style={{ fontSize: 11, color: '#ddd' }}>Nessun evento</span>
                   ) : evs.map(ev => {
                     const color = getCovColor(ev.coverage)
-                    const isActivity = ev.eventType === 'activity'
+                    const isActivity = ev.eventType !== 'training'
                     const borderColor = isPast ? '#ccc'
                       : isActivity ? '#6b1a2a'
                       : color === 'green' ? '#2e7d4f'
@@ -288,8 +249,7 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
                       : color === 'orange' ? '#b8610a' : '#b91c1c'
 
                     return (
-                      <div
-                        key={ev.id + ev.eventType}
+                      <div key={`${ev.id}-${ev.instance_id}-${ev.blockIdx ?? 'x'}`}
                         onClick={() => onEventClick(ev)}
                         style={{
                           borderRadius: 6, padding: '5px 8px', cursor: 'pointer',
@@ -299,21 +259,50 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays }) {
                         }}
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: isPast ? '#999' : '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {ev.title || 'Allenamento'}{isActivity ? ' ★' : ''}
-                          </div>
-                          {ev.coachNames?.length > 0 && (
-                            <div style={{ fontSize: 10, color: coachColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {ev.coachNames.join(', ')}
+                          {ev.eventType === 'school' && ev.classBlock?.length > 0 ? (
+                            // SCUOLA: ogni classe su riga separata con allenatori
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: isPast ? '#999' : '#1a1a1a', marginBottom: 2 }}>
+                                {ev.title} ★
+                              </div>
+                              {ev.classBlock.map(cls => {
+                                const clsAtt = attendances.filter(a => a.school_class_instance_id === cls.id)
+                                const coaches = clsAtt.map(a => a.coach?.full_name).filter(Boolean)
+                                return (
+                                  <div key={cls.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, marginBottom: 1 }}>
+                                    <span style={{ fontWeight: 600, color: isPast ? '#aaa' : '#1a1a1a', minWidth: 24 }}>
+                                      {cls.grade}ª{cls.section}
+                                    </span>
+                                    <span style={{ color: coaches.length === 0 ? '#f59e0b' : coachColor, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {coaches.length === 0 ? '⚠ nessuno' : coaches.join(', ')}
+                                    </span>
+                                    <span style={{ color: '#aaa', flexShrink: 0 }}>
+                                      {cls.start_time?.slice(0,5)}
+                                    </span>
+                                  </div>
+                                )
+                              })}
                             </div>
-                          )}
-                          {ev.coachNames?.length === 0 && !isPast && (
-                            <div style={{ fontSize: 10, color: '#bbb' }}>Nessuna presenza</div>
+                          ) : (
+                            // ALTRI TIPI: titolo + allenatori
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: isPast ? '#999' : '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {ev.title}{isActivity ? ' ★' : ''}
+                              </div>
+                              {ev.coachNames?.length > 0 && (
+                                <div style={{ fontSize: 10, color: coachColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {ev.coachNames.join(', ')}
+                                </div>
+                              )}
+                              {ev.coachNames?.length === 0 && !isPast && (
+                                <div style={{ fontSize: 10, color: '#bbb' }}>Nessuna presenza</div>
+                              )}
+                            </div>
                           )}
                         </div>
                         <div style={{ fontSize: 11, color: isPast ? '#bbb' : '#888', flexShrink: 0, textAlign: 'right' }}>
-                          {ev.start_time?.slice(0,5)}
-                          {ev.end_time && <><br /><span style={{ fontSize: 10 }}>→ {ev.end_time?.slice(0,5)}</span></>}
+                          {ev.start_time?.slice(0, 5)}
+                          {ev.end_time && <><br /><span style={{ fontSize: 10 }}>→ {ev.end_time?.slice(0, 5)}</span></>}
                         </div>
                       </div>
                     )
@@ -355,7 +344,6 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
           const isToday = isSameDay(d, TODAY)
           const isPast = isBefore(startOfDay(d), todayStart)
           const evs = getEventsForDay(d)
-          // Domenica = fine settimana → bordo destro più marcato
           const isSunday = getDay(d) === 0
           return (
             <div key={i} style={{
@@ -372,29 +360,26 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
               }}>{d.getDate()}</div>
               {evs.map(ev => {
                 const color = getCovColor(ev.coverage)
-                const isActivity = ev.eventType === 'activity'
-                const bg = isPast ? '#ebebeb'
-                  : isActivity ? '#f5e6e9'
-                  : color === 'green' ? '#d4edda'
-                  : color === 'orange' ? '#fde8c8' : '#fcd5d5'
-                const fg = isPast ? '#aaa'
-                  : isActivity ? '#6b1a2a'
-                  : color === 'green' ? '#2e7d4f'
-                  : color === 'orange' ? '#b8610a' : '#b91c1c'
-                const border = isPast ? '#ccc' : fg
+                const isActivity = ev.eventType !== 'training'
+                const bg = isPast ? '#ebebeb' : isActivity ? '#f5e6e9' : color === 'green' ? '#d4edda' : color === 'orange' ? '#fde8c8' : '#fcd5d5'
+                const fg = isPast ? '#aaa' : isActivity ? '#6b1a2a' : color === 'green' ? '#2e7d4f' : color === 'orange' ? '#b8610a' : '#b91c1c'
                 return (
-                  <div key={ev.id + ev.eventType}
+                  <div key={`${ev.id}-${ev.instance_id}-${ev.blockIdx ?? 'x'}`}
                     style={{
                       fontSize: 9, fontWeight: 500, borderRadius: 3, padding: '2px 4px', marginBottom: 2,
                       cursor: 'pointer', overflow: 'hidden',
-                      background: bg, color: fg,
-                      borderLeft: `2px solid ${border}`,
+                      background: bg, color: fg, borderLeft: `2px solid ${fg}`,
                       opacity: isPast ? 0.7 : 1,
                     }}
                     onClick={() => onEventClick(ev)}
                   >
                     <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {ev.title || 'Allenamento'}{isActivity ? ' ★' : ''}
+                      {ev.title}{isActivity ? ' ★' : ''}
+                      {ev.eventType === 'school' && ev.classBlock?.length > 0 && (
+                        <span style={{ fontWeight: 400, opacity: 0.8 }}>
+                          {' '}{ev.classBlock.map(c => `${c.grade}${c.section}`).join('·')}
+                        </span>
+                      )}
                     </div>
                     {ev.coachNames?.length > 0 && (
                       <div style={{ fontSize: 8, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

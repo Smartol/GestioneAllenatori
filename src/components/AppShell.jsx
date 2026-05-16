@@ -4,6 +4,11 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import NextEventPopup from './NextEventPopup'
 
+function useTheme(profile) {
+  const themeClass = profile?.theme_color ? `theme-${profile.theme_color}` : 'theme-brown'
+  return themeClass
+}
+
 export default function AppShell() {
   const { profile, isAdmin, signOut, selectProfile } = useAuth()
   const navigate = useNavigate()
@@ -38,7 +43,7 @@ export default function AppShell() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${useTheme(profile)}`}>
       {showPopup && <NextEventPopup onClose={() => setShowPopup(false)} />}
       {showProfile && (
         <ProfilePopup
@@ -54,7 +59,7 @@ export default function AppShell() {
 
       {/* Topbar */}
       <header className="topbar">
-        <span className="topbar-brand">GS Calendario</span>
+        <span className="topbar-brand">Scuola Ovale - Gestione attività</span>
         <div className="topbar-right">
           <button
             onClick={() => setShowProfile(true)}
@@ -143,6 +148,18 @@ function ProfilePopup({ profile, onClose, onSignOut, onChangeUser, onProfileUpda
     onProfileUpdated(data)
   }
 
+  async function updateTheme(colorId) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ theme_color: colorId })
+      .eq('id', profile.id)
+      .select()
+      .single()
+    
+    if (error) console.error('Errore update tema:', error)
+    else onProfileUpdated(data)
+  }
+
   return (
     <div
       style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.3)' }}
@@ -197,6 +214,36 @@ function ProfilePopup({ profile, onClose, onSignOut, onChangeUser, onProfileUpda
               </div>
             </div>
           )}
+        </div>
+        
+        {/* Selettore tema */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{ fontSize: 13, color: '#1a1a1a', marginBottom: 8 }}>🎨 Tema:</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+            {[
+              { id: 'brown', name: '🟤', label: 'Marrone' },
+              { id: 'purple', name: '🟣', label: 'Viola' },
+              { id: 'green', name: '🟢', label: 'Verde' },
+              { id: 'black', name: '⬛', label: 'Nero' },
+              { id: 'red', name: '🔴', label: 'Rosso' },
+            ].map(theme => (
+              <button
+                key={theme.id}
+                onClick={() => updateTheme(theme.id)}
+                title={theme.label}
+                style={{
+                  padding: 8,
+                  borderRadius: 8,
+                  border: profile?.theme_color === theme.id ? '2px solid #1a1a1a' : '1px solid #e5e5e5',
+                  background: '#f5f5f4',
+                  cursor: 'pointer',
+                  fontSize: 16,
+                }}
+              >
+                {theme.name}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Azioni */}
