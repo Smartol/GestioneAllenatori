@@ -36,6 +36,7 @@ export default function NextEventPopup({ onClose }) {
   const [saving, setSaving] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [selectedEventTypes, setSelectedEventTypes] = useState(new Set(['training', 'festival', 'attività', 'school']))
 
   useEffect(() => { loadEvents() }, [])
 
@@ -45,7 +46,7 @@ export default function NextEventPopup({ onClose }) {
     const todayStr = format(today, 'yyyy-MM-dd')
     const endStr = format(addDays(today, 30), 'yyyy-MM-dd')
 
-    const [trainingsRes, activitiesRes, myAttRes, allAttRes, exceptionsRes] = await Promise.all([
+    const [trainingsRes, activitiesRes, schoolsRes, myAttRes, allAttRes, exceptionsRes] = await Promise.all([
       supabase.from('recurring_trainings')
         .select(`*, recurring_training_categories(min_coaches, category_id, group_id,
           category:categories(id,name),
@@ -56,9 +57,12 @@ export default function NextEventPopup({ onClose }) {
           category:categories(id,name),
           group:category_groups(id,name,category_group_members(category:categories(id,name)))
         )`).gte('date', todayStr).lte('date', endStr),
+      supabase.from('events')
+        .select(`*, school_class_instances(id,grade,section,start_time,min_coaches,instance_date)`)
+        .eq('type', 'school'),
       supabase.from('attendances').select('*').eq('coach_id', profile.id),
       supabase.from('attendances').select('*, coach:profiles(id,full_name)')
-        .or(`and(training_id.not.is.null,instance_date.gte.${todayStr},instance_date.lte.${endStr}),and(activity_id.not.is.null)`),
+        .or(`and(training_id.not.is.null,instance_date.gte.${todayStr},instance_date.lte.${endStr}),and(activity_id.not.is.null),and(event_id.not.is.null,instance_date.gte.${todayStr},instance_date.lte.${endStr})`),
       supabase.from('training_instance_exceptions')
         .select('training_id, instance_date')
         .gte('instance_date', todayStr).lte('instance_date', endStr),
@@ -66,6 +70,7 @@ export default function NextEventPopup({ onClose }) {
 
     const trainings = trainingsRes.data || []
     const activities = activitiesRes.data || []
+    const schools = schoolsRes.data || []
     const myAtt = myAttRes.data || []
     const allAtt = allAttRes.data || []
     const exceptions = exceptionsRes.data || []
@@ -105,6 +110,25 @@ export default function NextEventPopup({ onClose }) {
       })
     })
 
+    schools.forEach(s => {
+      const classInstances = s.school_class_instances || []
+      classInstances.forEach(cls => {
+        const clsDateStr = cls.instance_date
+        const [y, m, d] = clsDateStr.split('-').map(Number)
+        const clsDate = new Date(y, m-1, d)
+        const myAttendance = myAtt.find(a => a.event_id === s.id && a.instance_date === clsDateStr)
+        result.push({
+          id: s.id, eventType: 'school', type: 'school',
+          title: s.title || 'Scuola',
+          date: clsDate, dateStr: clsDateStr,
+          start_time: cls.start_time, end_time: s.end_time,
+          classBlock: [cls],
+          slots: [],
+          myAttendance: myAttendance || null,
+        })
+      })
+    })
+
     result.sort((a, b) => {
       const dd = a.date - b.date
       return dd !== 0 ? dd : timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
@@ -115,10 +139,18 @@ export default function NextEventPopup({ onClose }) {
     setLoading(false)
   }
 
-  const filtered = onlyWithout ? events.filter(e => !e.myAttendance) : events
+  const getEventFilterType = (e) => {
+    if (e.eventType === 'training') return 'training'
+    if (e.eventType === 'school') return 'school'
+    return e.type // 'festival' or 'attività'
+  }
+
+  const filtered = events
+    .filter(e => selectedEventTypes.has(getEventFilterType(e)))
+    .filter(e => !onlyWithout || !e.myAttendance)
   const event = filtered[index]
 
-  useEffect(() => { setIndex(0); setSelectedSlot(null); setConfirmed(false) }, [onlyWithout])
+  useEffect(() => { setIndex(0); setSelectedSlot(null); setConfirmed(false) }, [selectedEventTypes, onlyWithout])
   useEffect(() => { setSelectedSlot(null); setConfirmed(false) }, [index])
 
   async function confirmPresence() {
@@ -172,8 +204,20 @@ export default function NextEventPopup({ onClose }) {
     if (!ev) return []
     if (ev.eventType === 'training')
       return allAttendances.filter(a => a.training_id === ev.id && a.instance_date === ev.dateStr)
+    if (ev.eventType === 'school')
+      return allAttendances.filter(a => a.event_id === ev.id && a.instance_date === ev.dateStr)
     return allAttendances.filter(a => a.activity_id === ev.id)
   }
+
+  function toggleEventType(type) {
+    setSelectedEventTypes(prev => {
+      const next = new Set(prev)
+      next.has(type) ? next.delete(type) : next.add(type)
+      return next
+    })
+  }
+
+  const typeIcon = { training:'🏉', festival:'🏆', school:'📚', attività:'🎉' }
 
   const isLast = !filtered.length || index === filtered.length - 1
   const isFirst = index === 0
@@ -216,6 +260,25 @@ export default function NextEventPopup({ onClose }) {
             </div>
           ) : (
             <>
+              {/* Filtri tipi di evento */}
+              <div style={{ marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[
+                  { key: 'training', label: '🏉 Training', icon: '🏉' },
+                  { key: 'festival', label: '🏆 Festival', icon: '🏆' },
+                  { key: 'school', label: '📚 Scuola', icon: '📚' },
+                  { key: 'attività', label: '🎉 Attività', icon: '🎉' },
+                ].map(t => (
+                  <div
+                    key={t.key}
+                    className={`chip${selectedEventTypes.has(t.key) ? ' selected' : ''}`}
+                    onClick={() => toggleEventType(t.key)}
+                    style={{ fontSize: 11, padding: '4px 10px' }}
+                  >
+                    {t.label}
+                  </div>
+                ))}
+              </div>
+
               {/* Data */}
               <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a', marginBottom: 2, textTransform: 'capitalize' }}>
                 {format(event.date, 'EEEE d MMMM', { locale: it })}
