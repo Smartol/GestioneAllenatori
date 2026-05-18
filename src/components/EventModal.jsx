@@ -396,73 +396,96 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
   const canConfirmOther  = !!selectedSlotKey
 
   async function confirmPresence() {
-    setSaving(true)
-    try {
-      let instanceId = event.instance_id
-      if (!instanceId) {
-        const { data: inst, error } = await supabase
+  console.log('confirmPresence called', { selectedSlotKey, event })
+  if (!selectedSlotKey && !isSchool) return
+  
+  setSaving(true)
+  try {
+    let instanceId = event.instance_id
+    if (!instanceId) {
+      const { data: inst, error } = await supabase
+        .from('event_instances')
+        .insert({ event_id: event.id, instance_date: event.dateStr })
+        .select().single()
+      if (error?.code === '23505') {
+        const { data: existing } = await supabase
           .from('event_instances')
-          .insert({ event_id: event.id, instance_date: event.dateStr })
-          .select().single()
-        if (error?.code === '23505') {
-          const { data: existing } = await supabase
-            .from('event_instances')
-            .select('id')
-            .eq('event_id', event.id)
-            .eq('instance_date', event.dateStr)
-            .single()
-          instanceId = existing.id
-        } else if (error) throw error
-        else instanceId = inst.id
-      }
-
-      if (isSchool) {
-        const classesToRegister = Array.from(selectedClassIds).filter(classId => {
-          const alreadyRegistered = myAttendances.some(a => 
-            a.school_class_instance_id === classId && !a.is_jolly
-          )
-          return !alreadyRegistered
-        })
-
-        if (classesToRegister.length > 0) {
-          // Cancella le vecchie presenze per questo instance (scuola)
-          const existingSchoolAtt = myAttendances.filter(a => !a.is_jolly && a.school_class_instance_id)
-          for (const att of existingSchoolAtt) {
-            await supabase.from('attendances_new').delete().eq('id', att.id)
-          }
-
-          // Reinserisci tutte le classi selezionate
-          const attendancesToInsert = classesToRegister.map(classId => ({
-            coach_id: profile.id, instance_id: instanceId,
-            is_jolly: false, school_class_instance_id: classId,
-          }))
-          
-          if (isEmergency) {
-            attendancesToInsert.push({
-              coach_id: profile.id, instance_id: instanceId,
-              is_jolly: true,
-              notes: emergencyNote || null,
-            })
-          }
-          
-          const { error } = await supabase.from('attendances_new').insert(attendancesToInsert)
-          if (error) throw error
-        }
-      }
-
-      setSaving(false)
-      setMode('idle')
-      setSelectedClassIds(new Set())
-      setIsEmergency(false)
-      setEmergencyNote('')
-      setSelectedSlotKey(null)
-      onRefetch()
-    } catch (err) {
-      console.error(err)
-      alert('Errore: ' + err.message)
-      setSaving(false)
+          .select('id')
+          .eq('event_id', event.id)
+          .eq('instance_date', event.dateStr)
+          .single()
+        instanceId = existing.id
+      } else if (error) throw error
+      else instanceId = inst.id
     }
+
+    if (isSchool) {
+      const classesToRegister = Array.from(selectedClassIds).filter(classId => {
+        const alreadyRegistered = myAttendances.some(a => 
+          a.school_class_instance_id === classId && !a.is_jolly
+        )
+        return !alreadyRegistered
+      })
+
+      if (classesToRegister.length > 0) {
+        const existingSchoolAtt = myAttendances.filter(a => !a.is_jolly && a.school_class_instance_id)
+        for (const att of existingSchoolAtt) {
+          await supabase.from('attendances_new').delete().eq('id', att.id)
+        }
+
+        const attendancesToInsert = classesToRegister.map(classId => ({
+          coach_id: profile.id,
+          instance_id: instanceId,
+          is_jolly: false,
+          school_class_instance_id: classId,
+        }))
+        
+        if (isEmergency) {
+          attendancesToInsert.push({
+            coach_id: profile.id,
+            instance_id: instanceId,
+            is_jolly: true,
+            notes: emergencyNote || null,
+          })
+        }
+        
+        const { error } = await supabase.from('attendances_new').insert(attendancesToInsert)
+        if (error) throw error
+      }
+    } else {
+      // TRAINING / FESTIVAL / OTHER
+      const payload = {
+        coach_id: profile.id,
+        instance_id: instanceId,
+        is_jolly: selectedSlotKey === 'jolly',
+      }
+
+      if (selectedSlotKey.startsWith('cat_')) {
+        payload.category_id = parseInt(selectedSlotKey.split('_')[1])
+      } else if (selectedSlotKey.startsWith('grp_')) {
+        payload.group_id = parseInt(selectedSlotKey.split('_')[1])
+      } else if (selectedSlotKey.startsWith('role_')) {
+        payload.role_id = parseInt(selectedSlotKey.split('_')[1])
+      }
+
+      console.log('Inserting attendance:', payload)
+      const { error } = await supabase.from('attendances_new').insert(payload)
+      if (error) throw error
+    }
+
+    setSaving(false)
+    setMode('idle')
+    setSelectedClassIds(new Set())
+    setIsEmergency(false)
+    setEmergencyNote('')
+    setSelectedSlotKey(null)
+    await onRefetch()
+  } catch (err) {
+    console.error('Error in confirmPresence:', err)
+    alert('Errore: ' + err.message)
+    setSaving(false)
   }
+}
 
   async function disdiciAll() {
     setSaving(true)
