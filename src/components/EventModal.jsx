@@ -4,7 +4,105 @@ import { it } from 'date-fns/locale'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
-import { getCovColor, computeCoverage } from '../hooks/useCalendarData'
+import { computeCoverage } from '../hooks/useCalendarData'
+
+/* ============================================================
+   LIGHTBOX
+   ============================================================ */
+function Lightbox({ images, startIndex = 0, caption, onClose }) {
+  const [idx, setIdx] = useState(startIndex)
+  const total = images.length
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'ArrowRight') setIdx(i => Math.min(i + 1, total - 1))
+      if (e.key === 'ArrowLeft') setIdx(i => Math.max(i - 1, 0))
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [total, onClose])
+
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.92)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <button onClick={onClose} style={{
+        position: 'absolute', top: 16, right: 16,
+        background: 'rgba(255,255,255,0.15)', border: 'none',
+        color: '#fff', borderRadius: '50%', width: 36, height: 36,
+        fontSize: 18, cursor: 'pointer', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+      }}>✕</button>
+
+      <img
+        src={images[idx]}
+        alt=""
+        style={{
+          maxWidth: '90vw', maxHeight: '65vh',
+          objectFit: 'contain', borderRadius: 8,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+        }}
+      />
+
+      {caption && (
+        <div style={{
+          marginTop: 14, color: 'rgba(255,255,255,0.85)',
+          fontSize: 13, maxWidth: 480, textAlign: 'center',
+          lineHeight: 1.5, whiteSpace: 'pre-wrap', padding: '0 8px',
+        }}>
+          {caption}
+        </div>
+      )}
+
+      {total > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 14 }}>
+          <button
+            onClick={() => setIdx(i => Math.max(i - 1, 0))}
+            disabled={idx === 0}
+            style={{
+              background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
+              borderRadius: '50%', width: 40, height: 40, fontSize: 20,
+              cursor: idx === 0 ? 'default' : 'pointer', opacity: idx === 0 ? 0.3 : 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >‹</button>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{idx + 1} / {total}</span>
+          <button
+            onClick={() => setIdx(i => Math.min(i + 1, total - 1))}
+            disabled={idx === total - 1}
+            style={{
+              background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
+              borderRadius: '50%', width: 40, height: 40, fontSize: 20,
+              cursor: idx === total - 1 ? 'default' : 'pointer', opacity: idx === total - 1 ? 0.3 : 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >›</button>
+        </div>
+      )}
+
+      {total > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          {images.map((src, i) => (
+            <img key={i} src={src} alt="" onClick={() => setIdx(i)} style={{
+              width: 48, height: 48, objectFit: 'cover', borderRadius: 6,
+              cursor: 'pointer', transition: 'all 0.15s',
+              border: i === idx ? '2px solid #fff' : '2px solid transparent',
+              opacity: i === idx ? 1 : 0.5,
+            }} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /* ============================================================
    HELPERS
@@ -15,17 +113,6 @@ function coverageBadge(covered, min) {
   return { bg: '#d4edda', color: '#2e7d4f', text: `${covered}/${min} ✓` }
 }
 
-function Badge({ covered, min }) {
-  const s = coverageBadge(covered, min)
-  return (
-    <span style={{ display:'inline-block', padding:'1px 7px', borderRadius:8,
-      fontSize:10, fontWeight:600, background:s.bg, color:s.color, marginLeft:6 }}>
-      {s.text}
-    </span>
-  )
-}
-
-/* Card selezionabile — usata per ogni slot/classe/ruolo */
 function OptionCard({ selected, onToggle, isRadio, isJolly, isEmergency, children, disabled }) {
   const borderColor = disabled ? '#f0f0f0'
     : isEmergency && selected ? '#7c3aed'
@@ -71,7 +158,7 @@ function OptionCard({ selected, onToggle, isRadio, isJolly, isEmergency, childre
 }
 
 /* ============================================================
-   EVENT MODAL — entry point
+   EVENT MODAL
    ============================================================ */
 export default function EventModal({ event, attendances, onClose, onRefetch, onDelete, embedded }) {
   const { profile, isAdmin } = useAuth()
@@ -92,13 +179,12 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
 
   const inner = (
     <div className="modal-box" style={{
-      display: 'flex', flexDirection: 'column',
+      display:'flex', flexDirection:'column',
       maxHeight: embedded ? '65vh' : '90vh',
       borderRadius: 14,
       boxShadow: embedded ? 'none' : '0 4px 24px rgba(0,0,0,0.14)',
       maxWidth: '100%',
     }}>
-      {/* HEADER */}
       <div className="modal-head">
         <div style={{ flex:1 }}>
           <div className="modal-title">
@@ -112,7 +198,6 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
         <button className="modal-close" onClick={onClose}>✕</button>
       </div>
 
-      {/* BODY */}
       <div className="modal-body" style={{ flex:1, overflowY:'auto' }}>
         {view === 'main' && (
           <MainBody
@@ -124,6 +209,12 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
         )}
         {view === 'note-form' && (
           <NoteForm event={event} profile={profile}
+            onDone={() => { onRefetch(); setView('main') }}
+            onCancel={() => setView('main')} />
+        )}
+        {view === 'note-edit' && (
+          <NoteForm event={event} profile={profile}
+            editingNote={view === 'note-edit' ? undefined : undefined}
             onDone={() => { onRefetch(); setView('main') }}
             onCancel={() => setView('main')} />
         )}
@@ -139,7 +230,6 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
         )}
       </div>
 
-      {/* FOOTER */}
       {view === 'main' && (
         <PresenceFooter
           event={event} profile={profile}
@@ -151,7 +241,6 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
   )
 
   if (embedded) return inner
-
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       {inner}
@@ -166,36 +255,51 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
   const [notes, setNotes] = useState(null)
   const [notesOpen, setNotesOpen] = useState(false)
   const [notesLoading, setNotesLoading] = useState(false)
+  const [editingNote, setEditingNote] = useState(null)
 
   useEffect(() => { loadNotes() }, [])
 
   async function loadNotes() {
     setNotesLoading(true)
-    let q = supabase.from('notes')
+    const { data } = await supabase
+      .from('notes')
       .select('*, author:profiles(id,full_name), note_images(id,storage_path)')
+      .eq('event_id', event.id)
+      .eq('instance_date', event.dateStr)
       .order('created_at')
-    if (event.eventType === 'training' || event.eventType === 'school') {
-      q = q.eq('training_id', event.id).eq('instance_date', event.dateStr)
-    } else {
-      q = q.eq('activity_id', event.id)
-    }
-    const { data } = await q
     setNotes(data || [])
     setNotesLoading(false)
   }
 
-  // ── SCUOLA: programma classi ──
+  async function deleteNote(noteId) {
+    if (!window.confirm('Eliminare questa nota?')) return
+    // Elimina immagini storage
+    const note = notes.find(n => n.id === noteId)
+    if (note?.note_images?.length) {
+      await supabase.storage.from('note-images').remove(note.note_images.map(i => i.storage_path))
+    }
+    await supabase.from('notes').delete().eq('id', noteId)
+    loadNotes()
+  }
+
   if (event.eventType === 'school') {
     return (
       <>
-        <SchoolProgramme
-          event={event}
-          attendances={attendances}
-          profile={profile}
-        />
-        <NotesSection notes={notes} notesLoading={notesLoading}
+        <SchoolProgramme event={event} attendances={attendances} profile={profile} />
+        <NotesSection
+          notes={notes} notesLoading={notesLoading}
           notesOpen={notesOpen} setNotesOpen={setNotesOpen}
-          onAddNote={() => onSetView('note-form')} />
+          profile={profile} isAdmin={isAdmin}
+          onAddNote={() => onSetView('note-form')}
+          onEditNote={note => setEditingNote(note)}
+          onDeleteNote={deleteNote}
+          onRefetch={loadNotes}
+        />
+        {editingNote && (
+          <NoteForm event={event} profile={profile} editingNote={editingNote}
+            onDone={() => { setEditingNote(null); loadNotes() }}
+            onCancel={() => setEditingNote(null)} />
+        )}
         {isAdmin && (
           <div className="modal-section">
             <button className="btn btn-secondary btn-sm"
@@ -209,12 +313,10 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
     )
   }
 
-  // ── ALTRI TIPI: copertura + lista allenatori ──
   const coverage = computeCoverage(event.slots, attendances)
 
   return (
     <>
-      {/* COPERTURA */}
       {Object.keys(coverage).length > 0 && (
         <div className="modal-section">
           <div className="modal-section-title">Copertura</div>
@@ -232,7 +334,6 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
         </div>
       )}
 
-      {/* ALLENATORI */}
       <div className="modal-section">
         <div className="modal-section-title">Allenatori presenti ({attendances.length})</div>
         {attendances.length === 0
@@ -248,9 +349,20 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
         }
       </div>
 
-      <NotesSection notes={notes} notesLoading={notesLoading}
+      <NotesSection
+        notes={notes} notesLoading={notesLoading}
         notesOpen={notesOpen} setNotesOpen={setNotesOpen}
-        onAddNote={() => onSetView('note-form')} />
+        profile={profile} isAdmin={isAdmin}
+        onAddNote={() => onSetView('note-form')}
+        onEditNote={note => setEditingNote(note)}
+        onDeleteNote={deleteNote}
+        onRefetch={loadNotes}
+      />
+      {editingNote && (
+        <NoteForm event={event} profile={profile} editingNote={editingNote}
+          onDone={() => { setEditingNote(null); loadNotes() }}
+          onCancel={() => setEditingNote(null)} />
+      )}
 
       {isAdmin && (
         <div className="modal-section">
@@ -279,12 +391,11 @@ function slotLabel(a, event) {
 }
 
 /* ============================================================
-   SCHOOL PROGRAMME — visualizza tutte le classi del giorno
+   SCHOOL PROGRAMME
    ============================================================ */
 function SchoolProgramme({ event, attendances, profile }) {
   const allClasses = event.allClassesForDate || event.classBlock || []
 
-  // Raggruppa per blocco (stesso raggruppamento del calendario)
   function toMin(t) {
     if (!t) return null
     const [h,m] = t.split(':').map(Number); return h*60+m
@@ -303,20 +414,13 @@ function SchoolProgramme({ event, attendances, profile }) {
   return (
     <div className="modal-section">
       <div className="modal-section-title">Classi di oggi</div>
-      {allClasses.length === 0 && (
-        <p style={{ fontSize:12, color:'#aaa' }}>Nessuna classe configurata per questa data.</p>
-      )}
+      {allClasses.length === 0 && <p style={{ fontSize:12, color:'#aaa' }}>Nessuna classe configurata.</p>}
       {blocks.map((block, bi) => (
         <div key={bi} style={{ background:'#f8f8f7', border:'1px solid #e5e5e5', borderRadius:8, padding:'8px 10px', marginBottom:8 }}>
-          {blocks.length > 1 && (
-            <div style={{ fontSize:10, color:'#aaa', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:4 }}>
-              {bi === 0 ? 'Blocco mattina' : bi === blocks.length-1 && blocks.length > 2 ? 'Blocco pomeriggio' : `Blocco ${bi+1}`}
-            </div>
-          )}
           {block.map(cls => {
-            const clsAttendances = attendances.filter(a => a.school_class_instance_id === cls.id)
+            const clsAtt = attendances.filter(a => a.school_class_instance_id === cls.id)
             const jolly = attendances.filter(a => a.is_jolly)
-            const allPresent = [...clsAttendances, ...jolly]
+            const allPresent = [...clsAtt, ...jolly]
             const isMine = allPresent.some(a => a.coach_id === profile?.id)
             return (
               <div key={cls.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid #f0f0f0', gap:8 }}>
@@ -329,9 +433,7 @@ function SchoolProgramme({ event, attendances, profile }) {
                     : allPresent.map(a => (a.coach_id===profile?.id ? '✓ Tu' : a.coach?.full_name)).join(', ')
                   }
                 </span>
-                <span style={{ fontSize:11, color:'#888', flexShrink:0 }}>
-                  {cls.start_time?.slice(0,5)}
-                </span>
+                <span style={{ fontSize:11, color:'#888', flexShrink:0 }}>{cls.start_time?.slice(0,5)}</span>
               </div>
             )
           })}
@@ -342,18 +444,272 @@ function SchoolProgramme({ event, attendances, profile }) {
 }
 
 /* ============================================================
-   PRESENCE FOOTER — dichiarazione presenza per tutti i tipi
+   NOTES SECTION
+   ============================================================ */
+function NotesSection({ notes, notesLoading, notesOpen, setNotesOpen, profile, isAdmin, onAddNote, onEditNote, onDeleteNote }) {
+  const noteCount = notes?.length ?? '…'
+  return (
+    <div className="modal-section">
+      <button onClick={() => setNotesOpen(o => !o)}
+        style={{ width:'100%', padding:'8px 12px', background:'#f8f8f7', border:'1px solid #e5e5e5', borderRadius: notesOpen ? '8px 8px 0 0' : '8px', fontSize:13, fontWeight:500, color:'#555', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <span>📝 Note</span>
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ background: noteCount > 0 ? '#1a1a1a' : '#e5e5e5', color: noteCount > 0 ? '#fff' : '#999', borderRadius:10, padding:'1px 7px', fontSize:11, fontWeight:600 }}>
+            {notesLoading ? '…' : noteCount}
+          </span>
+          <span style={{ color:'#aaa', fontSize:12 }}>{notesOpen ? '▴' : '▾'}</span>
+        </div>
+      </button>
+      {notesOpen && (
+        <div style={{ background:'#f8f8f7', border:'1px solid #e5e5e5', borderTop:'none', borderRadius:'0 0 8px 8px', padding:'10px 12px' }}>
+          {notes?.length === 0 && <p style={{ fontSize:12, color:'#aaa', textAlign:'center', paddingBottom:6 }}>Nessuna nota.</p>}
+          {notes?.map(n => (
+            <NoteCard
+              key={n.id} note={n}
+              canEdit={isAdmin || n.author_id === profile?.id}
+              onEdit={() => onEditNote(n)}
+              onDelete={() => onDeleteNote(n.id)}
+            />
+          ))}
+          <button onClick={onAddNote}
+            style={{ width:'100%', padding:'7px', background:'#fff', border:'1px dashed #ccc', borderRadius:7, fontSize:12, color:'#888', cursor:'pointer', marginTop:2 }}>
+            + Aggiungi nota
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ============================================================
+   NOTE CARD con Lightbox
+   ============================================================ */
+function NoteCard({ note, canEdit, onEdit, onDelete }) {
+  const [lightbox, setLightbox] = useState(null) // { urls, startIndex }
+  const scopeLabel = { single:'Questo evento', week:'Settimana', multi:'Multipla' }
+
+  const imageUrls = (note.note_images || []).map(img => {
+    const { data } = supabase.storage.from('note-images').getPublicUrl(img.storage_path)
+    return data?.publicUrl
+  }).filter(Boolean)
+
+  return (
+    <div style={{ background:'#fff', borderRadius:7, padding:'8px 10px', marginBottom:6 }}>
+      {lightbox && (
+        <Lightbox
+          images={lightbox.urls}
+          startIndex={lightbox.startIndex}
+          caption={note.content}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4 }}>
+        <div>
+          <span style={{ fontSize:11, fontWeight:600, color:'#1a1a1a' }}>{note.author?.full_name}</span>
+          <span style={{ fontSize:10, color:'#aaa', marginLeft:6 }}>{scopeLabel[note.scope]}</span>
+        </div>
+        {canEdit && (
+          <div style={{ display:'flex', gap:4 }}>
+            <button onClick={onEdit} style={{
+              fontSize:11, padding:'2px 7px', borderRadius:5,
+              border:'1px solid #e5e5e5', background:'#f8f8f7',
+              color:'#555', cursor:'pointer',
+            }}>✏️</button>
+            <button onClick={onDelete} style={{
+              fontSize:11, padding:'2px 7px', borderRadius:5,
+              border:'none', background:'#fef2f2',
+              color:'#b91c1c', cursor:'pointer',
+            }}>✕</button>
+          </div>
+        )}
+      </div>
+
+      {note.content && (
+        <div style={{ fontSize:12, color:'#555', marginTop:3, lineHeight:1.5 }}>{note.content}</div>
+      )}
+
+      {/* Immagini con lightbox */}
+      {imageUrls.length > 0 && (
+        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
+          {imageUrls.map((url, i) => (
+            <img
+              key={i} src={url} alt="nota"
+              onClick={() => setLightbox({ urls: imageUrls, startIndex: i })}
+              style={{
+                width:64, height:64, objectFit:'cover', borderRadius:6,
+                border:'1px solid #e5e5e5', cursor:'pointer',
+                transition:'opacity 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ============================================================
+   NOTE FORM (crea + modifica)
+   ============================================================ */
+function NoteForm({ event, profile, editingNote, onDone, onCancel }) {
+  const [scope, setScope] = useState(editingNote?.scope || 'single')
+  const [content, setContent] = useState(editingNote?.content || '')
+  const [images, setImages] = useState([])
+  const [existingImages, setExistingImages] = useState(editingNote?.note_images || [])
+  const [saving, setSaving] = useState(false)
+  const fileRef = useRef()
+
+  async function save() {
+    setSaving(true)
+    const notePayload = {
+      author_id: profile.id,
+      scope,
+      content: content || null,
+      event_id: event.id,
+      instance_date: event.dateStr || null,
+    }
+
+    if (editingNote) {
+      // UPDATE
+      await supabase.from('notes').update({ scope, content: content || null }).eq('id', editingNote.id)
+      // Nuove immagini
+      if (images.length > 0) {
+        for (const file of images) {
+          const sanitizedName = file.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '')
+          const path = `${profile.id}/${editingNote.id}/${Date.now()}_${sanitizedName}`
+          const { error: uploadError } = await supabase.storage.from('note-images').upload(path, file)
+          if (!uploadError) {
+            await supabase.from('note_images').insert({ note_id: editingNote.id, storage_path: path })
+          }
+        }
+      }
+    } else {
+      // INSERT
+      const { data: note, error: noteError } = await supabase.from('notes').insert(notePayload).select().single()
+      console.log('Note saved:', note, noteError)
+      if (note && images.length > 0) {
+        for (const file of images) {
+          const sanitizedName = file.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '')
+          const path = `${profile.id}/${note.id}/${Date.now()}_${sanitizedName}`
+          const { data: uploadData, error: uploadError } = await supabase.storage.from('note-images').upload(path, file)
+          console.log('Upload:', path, uploadData, uploadError)
+          if (!uploadError) {
+            await supabase.from('note_images').insert({ note_id: note.id, storage_path: path })
+          }
+        }
+      }
+    }
+
+    setSaving(false)
+    onDone()
+  }
+
+  async function removeExistingImage(img) {
+    await supabase.storage.from('note-images').remove([img.storage_path])
+    await supabase.from('note_images').delete().eq('id', img.id)
+    setExistingImages(prev => prev.filter(i => i.id !== img.id))
+  }
+
+  return (
+    <div style={{ background: '#f8f8f7', borderRadius: 10, padding: '12px', marginBottom: 8 }}>
+      <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10 }}>
+        {editingNote ? '✏️ Modifica nota' : '+ Nuova nota'}
+      </div>
+      <div className="field">
+        <label>Ambito</label>
+        <div className="chip-group">
+          {[{value:'single',label:'Questo evento'},{value:'week',label:'Settimana'},{value:'multi',label:'Multipla'}].map(s => (
+            <div key={s.value} className={`chip${scope===s.value?' selected':''}`} onClick={() => setScope(s.value)}>{s.label}</div>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label>Nota</label>
+        <textarea
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          placeholder="Scrivi qui..."
+          style={{ width:'100%', padding:'8px 10px', border:'1.5px solid #ddd', borderRadius:8, fontSize:13, resize:'vertical', minHeight:72, fontFamily:'inherit' }}
+        />
+      </div>
+
+      {/* Immagini esistenti (in modifica) */}
+      {existingImages.length > 0 && (
+        <div className="field">
+          <label>Immagini esistenti</label>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {existingImages.map(img => {
+              const { data } = supabase.storage.from('note-images').getPublicUrl(img.storage_path)
+              return (
+                <div key={img.id} style={{ position:'relative' }}>
+                  <img src={data?.publicUrl} alt="" style={{ width:64, height:64, objectFit:'cover', borderRadius:6, border:'1px solid #e5e5e5' }} />
+                  <button
+                    onClick={() => removeExistingImage(img)}
+                    style={{
+                      position:'absolute', top:-6, right:-6, width:20, height:20,
+                      borderRadius:'50%', background:'#ef4444', color:'#fff',
+                      border:'none', cursor:'pointer', fontSize:12,
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                    }}
+                  >×</button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="field">
+        <label>Aggiungi immagini</label>
+        <div className="img-upload-area" onClick={() => fileRef.current.click()}>
+          Clicca per aggiungere immagini
+        </div>
+        <input type="file" ref={fileRef} accept="image/*" multiple style={{ display:'none' }}
+          onChange={e => setImages(prev => [...prev, ...Array.from(e.target.files)])} />
+        {images.length > 0 && (
+          <div className="img-previews">
+            {images.map((f,i) => (
+              <div key={i} style={{ position:'relative' }}>
+                <img src={URL.createObjectURL(f)} className="img-preview-thumb" alt="preview" />
+                <button
+                  onClick={() => setImages(prev => prev.filter((_,idx) => idx !== i))}
+                  style={{
+                    position:'absolute', top:-4, right:-4, width:16, height:16,
+                    borderRadius:'50%', background:'#ef4444', color:'#fff',
+                    border:'none', cursor:'pointer', fontSize:10,
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                  }}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display:'flex', gap:8 }}>
+        <button className="btn btn-primary btn-sm" onClick={save}
+          disabled={(!content && images.length===0 && existingImages.length===0) || saving}>
+          {saving ? 'Salvataggio...' : editingNote ? 'Salva modifiche' : 'Salva nota'}
+        </button>
+        <button className="btn btn-secondary btn-sm" onClick={onCancel}>Annulla</button>
+      </div>
+    </div>
+  )
+}
+
+/* ============================================================
+   PRESENCE FOOTER
    ============================================================ */
 function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, onRefetch }) {
-  const [mode, setMode] = useState('idle') // idle | declare | disdici
+  const [mode, setMode] = useState('idle')
   const [saving, setSaving] = useState(false)
-
-  // Per school: set di class instance id selezionati + emergenza
   const [selectedClassIds, setSelectedClassIds] = useState(new Set())
   const [emergencyNote, setEmergencyNote] = useState('')
   const [isEmergency, setIsEmergency] = useState(false)
-
-  // Per training/festival/other: radio
   const [selectedSlotKey, setSelectedSlotKey] = useState(null)
 
   const allClasses = event.allClassesForDate || event.classBlock || []
@@ -372,18 +728,16 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
     if (isEmergency) setEmergencyNote('')
   }
 
-  // Slot options per training/festival/other
   const slotOptions = (event.slots || []).map(s => {
-    if (s.category) return { key:`cat_${s.category_id}`, label:s.category.name, sub:`min ${s.min_coaches}`, category_id:s.category_id, group_id:null, role_id:null, covered: 0, min: s.min_coaches }
+    if (s.category) return { key:`cat_${s.category_id}`, label:s.category.name, category_id:s.category_id, group_id:null, role_id:null, min:s.min_coaches }
     if (s.group) {
       const label = s.group.name || s.group.category_group_members?.map(m=>m.category?.name).join('+') || 'Gruppo'
-      return { key:`grp_${s.group_id}`, label, sub:`min ${s.min_coaches}`, category_id:null, group_id:s.group_id, role_id:null, min:s.min_coaches }
+      return { key:`grp_${s.group_id}`, label, category_id:null, group_id:s.group_id, role_id:null, min:s.min_coaches }
     }
-    if (s.role) return { key:`role_${s.role_id}`, label:s.role.name, sub:`min ${s.min_coaches}`, category_id:null, group_id:null, role_id:s.role_id, min:s.min_coaches }
+    if (s.role) return { key:`role_${s.role_id}`, label:s.role.name, category_id:null, group_id:null, role_id:s.role_id, min:s.min_coaches }
     return null
   }).filter(Boolean)
 
-  // Calcola copertura per ogni slot
   const slotWithCoverage = slotOptions.map(opt => {
     const count = attendances.filter(a => {
       if (a.is_jolly) return false
@@ -400,99 +754,80 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
   const canConfirmOther  = !!selectedSlotKey
 
   async function confirmPresence() {
-  console.log('confirmPresence called', { selectedSlotKey, event })
-  if (!selectedSlotKey && !isSchool) return
-  
-  setSaving(true)
-  try {
-    // Crea event_instances SOLO per training/festival/other, NON per school
-    let instanceId = event.instance_id
-    
-    if (!isSchool && !instanceId) {
-      const { data: inst, error } = await supabase
-        .from('event_instances')
-        .insert({ event_id: event.id, instance_date: event.dateStr })
-        .select().single()
-      if (error?.code === '23505') {
-        const { data: existing } = await supabase
+    if (!selectedSlotKey && !isSchool) return
+    setSaving(true)
+    try {
+      let instanceId = event.instance_id
+
+      if (!isSchool && !instanceId) {
+        const { data: inst, error } = await supabase
           .from('event_instances')
-          .select('id')
-          .eq('event_id', event.id)
-          .eq('instance_date', event.dateStr)
-          .single()
-        instanceId = existing.id
-      } else if (error) throw error
-      else instanceId = inst.id
-    }
+          .insert({ event_id: event.id, instance_date: event.dateStr })
+          .select().single()
+        if (error?.code === '23505') {
+          const { data: existing } = await supabase
+            .from('event_instances').select('id')
+            .eq('event_id', event.id).eq('instance_date', event.dateStr).single()
+          instanceId = existing.id
+        } else if (error) throw error
+        else instanceId = inst.id
+      }
 
-    if (isSchool) {
-      // SCUOLA: salva direttamente con school_class_instance_id, senza instance_id
-      const classesToRegister = Array.from(selectedClassIds).filter(classId => {
-        const alreadyRegistered = myAttendances.some(a => 
-          a.school_class_instance_id === classId && !a.is_jolly
+      if (isSchool) {
+        const classesToRegister = Array.from(selectedClassIds).filter(classId =>
+          !myAttendances.some(a => a.school_class_instance_id === classId && !a.is_jolly)
         )
-        return !alreadyRegistered
-      })
 
-      if (classesToRegister.length > 0) {
-        // Elimina vecchie presenze non-jolly per questa data
-        const existingSchoolAtt = myAttendances.filter(a => !a.is_jolly && a.school_class_instance_id)
-        for (const att of existingSchoolAtt) {
-          await supabase.from('attendances_new').delete().eq('id', att.id)
-        }
+        if (classesToRegister.length > 0 || isEmergency) {
+          const existingSchoolAtt = myAttendances.filter(a => !a.is_jolly && a.school_class_instance_id)
+          for (const att of existingSchoolAtt) {
+            await supabase.from('attendances_new').delete().eq('id', att.id)
+          }
 
-        // Inserisci nuove presenze - SENZA instance_id
-        const attendancesToInsert = classesToRegister.map(classId => ({
-          coach_id: profile.id,
-          school_class_instance_id: classId,
-          is_jolly: false,
-        }))
-        
-        if (isEmergency) {
-          attendancesToInsert.push({
+          const attendancesToInsert = classesToRegister.map(classId => ({
             coach_id: profile.id,
-            is_jolly: true,
-            notes: emergencyNote || null,
-          })
+            school_class_instance_id: classId,
+            is_jolly: false,
+          }))
+
+          if (isEmergency) {
+            attendancesToInsert.push({
+              coach_id: profile.id,
+              is_jolly: true,
+              notes: emergencyNote || null,
+            })
+          }
+
+          const { error } = await supabase.from('attendances_new').insert(attendancesToInsert)
+          if (error) throw error
         }
-        
-        const { error } = await supabase.from('attendances_new').insert(attendancesToInsert)
+      } else {
+        const payload = {
+          coach_id: profile.id,
+          instance_id: instanceId,
+          is_jolly: selectedSlotKey === 'jolly',
+        }
+        if (selectedSlotKey?.startsWith('cat_')) payload.category_id = parseInt(selectedSlotKey.split('_')[1])
+        else if (selectedSlotKey?.startsWith('grp_')) payload.group_id = parseInt(selectedSlotKey.split('_')[1])
+        else if (selectedSlotKey?.startsWith('role_')) payload.role_id = parseInt(selectedSlotKey.split('_')[1])
+
+        const { error } = await supabase.from('attendances_new').insert(payload)
         if (error) throw error
       }
-    } else {
-      // TRAINING / FESTIVAL / OTHER: usa instance_id
-      const payload = {
-        coach_id: profile.id,
-        instance_id: instanceId,
-        is_jolly: selectedSlotKey === 'jolly',
-      }
 
-      if (selectedSlotKey.startsWith('cat_')) {
-        payload.category_id = parseInt(selectedSlotKey.split('_')[1])
-      } else if (selectedSlotKey.startsWith('grp_')) {
-        payload.group_id = parseInt(selectedSlotKey.split('_')[1])
-      } else if (selectedSlotKey.startsWith('role_')) {
-        payload.role_id = parseInt(selectedSlotKey.split('_')[1])
-      }
-
-      console.log('Inserting attendance:', payload)
-      const { error } = await supabase.from('attendances_new').insert(payload)
-      if (error) throw error
+      setSaving(false)
+      setMode('idle')
+      setSelectedClassIds(new Set())
+      setIsEmergency(false)
+      setEmergencyNote('')
+      setSelectedSlotKey(null)
+      await onRefetch()
+    } catch (err) {
+      console.error(err)
+      alert('Errore: ' + err.message)
+      setSaving(false)
     }
-
-    setSaving(false)
-    setMode('idle')
-    setSelectedClassIds(new Set())
-    setIsEmergency(false)
-    setEmergencyNote('')
-    setSelectedSlotKey(null)
-    await onRefetch()
-  } catch (err) {
-    console.error('Error in confirmPresence:', err)
-    alert('Errore: ' + err.message)
-    setSaving(false)
   }
-}
 
   async function disdiciAll() {
     setSaving(true)
@@ -504,18 +839,13 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
     onRefetch()
   }
 
-  // ── RENDER ──
   return (
     <div style={{ borderTop:'1px solid #f0f0f0', background:'#fff' }}>
-
-      {/* MODALITÀ DICHIARA */}
       {mode === 'declare' && (
         <div style={{ padding:'14px 16px 0', borderTop:'1px solid #e5e5e5', background:'#f8f8f7' }}>
           {isSchool ? (
             <>
-              <div style={{ fontSize:12, color:'#666', fontWeight:500, marginBottom:10 }}>
-                A quali classi partecipi?
-              </div>
+              <div style={{ fontSize:12, color:'#666', fontWeight:500, marginBottom:10 }}>A quali classi partecipi?</div>
               {allClasses.map(cls => {
                 const isSel = selectedClassIds.has(cls.id)
                 const clsAtt = attendances.filter(a => a.school_class_instance_id===cls.id)
@@ -533,8 +863,6 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
                   </OptionCard>
                 )
               })}
-
-              {/* EMERGENZA */}
               <OptionCard selected={isEmergency} onToggle={toggleEmergency} isRadio={false} isEmergency>
                 <div style={{ flex:1 }}>
                   <span style={{ fontSize:13, fontWeight:600 }}>⚡ Emergenza</span>
@@ -546,9 +874,8 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
                   <input
                     value={emergencyNote}
                     onChange={e => setEmergencyNote(e.target.value)}
-                    placeholder="Specifica la tua disponibilità (es. solo mattina, fino alle 12...)"
+                    placeholder="Specifica disponibilità..."
                     style={{ width:'100%', padding:'8px 10px', border:'1px solid #c4b5fd', borderRadius:8, fontSize:12, background:'#faf5ff' }}
-                    autoFocus
                   />
                 </div>
               )}
@@ -560,8 +887,7 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
               </div>
               {slotWithCoverage.map(opt => {
                 const isSel = selectedSlotKey === opt.key
-                const jollyTotal = jollyCount
-                const s = coverageBadge(opt.covered + jollyTotal, opt.min)
+                const s = coverageBadge(opt.covered + jollyCount, opt.min)
                 return (
                   <OptionCard key={opt.key} selected={isSel} onToggle={() => setSelectedSlotKey(opt.key)} isRadio>
                     <div style={{ flex:1 }}>
@@ -582,10 +908,7 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
                   </OptionCard>
                 )
               })}
-              <OptionCard
-                selected={selectedSlotKey==='jolly'}
-                onToggle={() => setSelectedSlotKey(selectedSlotKey==='jolly' ? null : 'jolly')}
-                isRadio isJolly>
+              <OptionCard selected={selectedSlotKey==='jolly'} onToggle={() => setSelectedSlotKey(selectedSlotKey==='jolly' ? null : 'jolly')} isRadio isJolly>
                 <div style={{ flex:1 }}>
                   <span style={{ fontSize:13, fontWeight:600 }}>⭐ Jolly</span>
                   <div style={{ fontSize:11, color:'#888', marginTop:2 }}>Disponibile dove serve di più</div>
@@ -612,7 +935,6 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
         </div>
       )}
 
-      {/* MODALITÀ DISDICI */}
       {mode === 'disdici' && (
         <div style={{ padding:'14px 16px 0', borderTop:'1px solid #e5e5e5', background:'#fef2f2' }}>
           <div style={{ fontSize:12, color:'#666', fontWeight:500, marginBottom:10 }}>
@@ -631,7 +953,6 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
         </div>
       )}
 
-      {/* BOTTONE PRINCIPALE */}
       {mode === 'idle' && (
         <div style={{ padding:'10px 16px 14px' }}>
           {isSigned ? (
@@ -652,133 +973,18 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
 }
 
 /* ============================================================
-   NOTES SECTION
-   ============================================================ */
-function NotesSection({ notes, notesLoading, notesOpen, setNotesOpen, onAddNote }) {
-  const noteCount = notes?.length ?? '…'
-  return (
-    <div className="modal-section">
-      <button onClick={() => setNotesOpen(o => !o)}
-        style={{ width:'100%', padding:'8px 12px', background:'#f8f8f7', border:'1px solid #e5e5e5', borderRadius: notesOpen ? '8px 8px 0 0' : '8px', fontSize:13, fontWeight:500, color:'#555', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-        <span>📝 Note</span>
-        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <span style={{ background: noteCount > 0 ? '#1a1a1a' : '#e5e5e5', color: noteCount > 0 ? '#fff' : '#999', borderRadius:10, padding:'1px 7px', fontSize:11, fontWeight:600 }}>
-            {notesLoading ? '…' : noteCount}
-          </span>
-          <span style={{ color:'#aaa', fontSize:12 }}>{notesOpen ? '▴' : '▾'}</span>
-        </div>
-      </button>
-      {notesOpen && (
-        <div style={{ background:'#f8f8f7', border:'1px solid #e5e5e5', borderTop:'none', borderRadius:'0 0 8px 8px', padding:'10px 12px' }}>
-          {notes?.length === 0 && <p style={{ fontSize:12, color:'#aaa', textAlign:'center', paddingBottom:6 }}>Nessuna nota.</p>}
-          {notes?.map(n => <NoteCard key={n.id} note={n} />)}
-          <button onClick={onAddNote}
-            style={{ width:'100%', padding:'7px', background:'#fff', border:'1px dashed #ccc', borderRadius:7, fontSize:12, color:'#888', cursor:'pointer', marginTop:2 }}>
-            + Aggiungi nota
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function NoteCard({ note }) {
-  const scopeLabel = { single:'Questo evento', week:'Settimana', multi:'Multipla' }
-  return (
-    <div style={{ background:'#fff', borderRadius:7, padding:'8px 10px', marginBottom:6 }}>
-      <span style={{ fontSize:11, fontWeight:600, color:'#1a1a1a' }}>{note.author?.full_name}</span>
-      <span style={{ fontSize:10, color:'#aaa', marginLeft:6 }}>{scopeLabel[note.scope]}</span>
-      {note.content && <div style={{ fontSize:12, color:'#555', marginTop:3, lineHeight:1.5 }}>{note.content}</div>}
-      {note.note_images?.length > 0 && (
-        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
-          {note.note_images.map(img => {
-            const { data } = supabase.storage.from('note-images').getPublicUrl(img.storage_path)
-            return <img key={img.id} src={data.publicUrl} style={{ width:60, height:60, objectFit:'cover', borderRadius:6, border:'1px solid #e5e5e5' }} alt="nota" />
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ============================================================
-   NOTE FORM
-   ============================================================ */
-function NoteForm({ event, profile, onDone, onCancel }) {
-  const [scope, setScope] = useState('single')
-  const [content, setContent] = useState('')
-  const [images, setImages] = useState([])
-  const [saving, setSaving] = useState(false)
-  const fileRef = useRef()
-
-  async function save() {
-    setSaving(true)
-    const notePayload = { author_id:profile.id, scope, content:content||null }
-    if (event.eventType==='training'||event.eventType==='school') {
-      notePayload.training_id = event.id; notePayload.instance_date = event.dateStr
-    } else {
-      notePayload.activity_id = event.id
-    }
-    const { data:note } = await supabase.from('notes').insert(notePayload).select().single()
-    if (note && images.length > 0) {
-      for (const file of images) {
-        const path = `${profile.id}/${note.id}/${Date.now()}_${file.name}`
-        await supabase.storage.from('note-images').upload(path, file)
-        await supabase.from('note_images').insert({ note_id:note.id, storage_path:path })
-      }
-    }
-    setSaving(false); onDone()
-  }
-
-  return (
-    <div>
-      <div className="field">
-        <label>Ambito</label>
-        <div className="chip-group">
-          {[{value:'single',label:'Questo evento'},{value:'week',label:'Settimana'},{value:'multi',label:'Multipla'}].map(s => (
-            <div key={s.value} className={`chip${scope===s.value?' selected':''}`} onClick={() => setScope(s.value)}>{s.label}</div>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <label>Nota</label>
-        <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Scrivi qui..." />
-      </div>
-      <div className="field">
-        <label>Immagini</label>
-        <div className="img-upload-area" onClick={() => fileRef.current.click()}>Clicca per aggiungere immagini</div>
-        <input type="file" ref={fileRef} accept="image/*" multiple style={{ display:'none' }} onChange={e => setImages(prev=>[...prev,...Array.from(e.target.files)])} />
-        {images.length > 0 && (
-          <div className="img-previews">
-            {images.map((f,i) => <img key={i} src={URL.createObjectURL(f)} className="img-preview-thumb" alt="preview" />)}
-          </div>
-        )}
-      </div>
-      <div style={{ display:'flex', gap:8 }}>
-        <button className="btn btn-primary btn-sm" onClick={save} disabled={(!content&&images.length===0)||saving}>
-          {saving?'Salvataggio...':'Salva nota'}
-        </button>
-        <button className="btn btn-secondary btn-sm" onClick={onCancel}>Annulla</button>
-      </div>
-    </div>
-  )
-}
-
-/* ============================================================
-   EDIT CHOICE VIEW
+   EDIT CHOICE / EDIT INSTANCE
    ============================================================ */
 function EditChoiceView({ event, onEditInstance, onCancel }) {
   const navigate = useNavigate()
   return (
     <div style={{ padding:'8px 0' }}>
-      <p style={{ fontSize:13, color:'#555', marginBottom:16 }}>
-        Vuoi modificare solo questa data o l'intero evento?
-      </p>
+      <p style={{ fontSize:13, color:'#555', marginBottom:16 }}>Vuoi modificare solo questa data o l'intero evento?</p>
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
         <button onClick={onEditInstance}
           style={{ padding:'14px 16px', borderRadius:10, border:'1.5px solid #1a1a1a', background:'#fff', cursor:'pointer', textAlign:'left' }}>
           <div style={{ fontSize:13, fontWeight:600, marginBottom:3 }}>📅 Solo questa data</div>
-          <div style={{ fontSize:12, color:'#888' }}>Cambia orari, rimuovi classi o aggiungi note per {event.dateStr}</div>
+          <div style={{ fontSize:12, color:'#888' }}>Cambia orari o rimuovi classi per {event.dateStr}</div>
         </button>
         <button onClick={() => navigate('/admin')}
           style={{ padding:'14px 16px', borderRadius:10, border:'1.5px solid #e5e5e5', background:'#fff', cursor:'pointer', textAlign:'left' }}>
@@ -791,9 +997,6 @@ function EditChoiceView({ event, onEditInstance, onCancel }) {
   )
 }
 
-/* ============================================================
-   EDIT INSTANCE VIEW
-   ============================================================ */
 function EditInstanceView({ event, onDone, onCancel }) {
   const originalDate = event.dateStr || ''
   const [classes, setClasses] = useState([])
@@ -821,28 +1024,6 @@ function EditInstanceView({ event, onDone, onCancel }) {
 
   function update(id, field, value) {
     setClasses(prev => prev.map(c => c.id===id ? {...c,[field]:value,_dirty:true} : c))
-  }
-
-  function DateShortcuts({ cls }) {
-    const isChanged = cls.instance_date !== originalDate
-    return (
-      <div style={{ marginTop:5 }}>
-        <div style={{ display:'flex', gap:5 }}>
-          {[{l:'−7gg',d:-7},{l:'−1gg',d:-1},{l:'+1gg',d:+1},{l:'+7gg',d:+7}].map(s => (
-            <button key={s.d} type="button" onClick={() => update(cls.id,'instance_date',addDaysToStr(cls.instance_date||originalDate,s.d))}
-              style={{ flex:1, padding:'5px 0', fontSize:11, borderRadius:6, border:'1px solid #e5e5e5', background:'#f8f8f7', color:'#555', cursor:'pointer' }}>
-              {s.l}
-            </button>
-          ))}
-        </div>
-        {isChanged && (
-          <button type="button" onClick={() => update(cls.id,'instance_date',originalDate)}
-            style={{ marginTop:5, width:'100%', padding:'4px', fontSize:11, borderRadius:6, border:'1px solid #fca5a5', background:'#fef2f2', color:'#b91c1c', cursor:'pointer' }}>
-            ↩ Ripristina data originale ({originalDate})
-          </button>
-        )}
-      </div>
-    )
   }
 
   async function save() {
@@ -903,7 +1084,12 @@ function EditInstanceView({ event, onDone, onCancel }) {
                     <input type="date" value={cls.instance_date}
                       onChange={e => update(cls.id,'instance_date',e.target.value)}
                       style={{ width:'100%', padding:'5px 8px', border:'1px solid #ddd', borderRadius:6, fontSize:12 }} />
-                    <DateShortcuts cls={cls} />
+                    {cls.instance_date !== originalDate && (
+                      <button type="button" onClick={() => update(cls.id,'instance_date',originalDate)}
+                        style={{ marginTop:5, width:'100%', padding:'4px', fontSize:11, borderRadius:6, border:'1px solid #fca5a5', background:'#fef2f2', color:'#b91c1c', cursor:'pointer' }}>
+                        ↩ Ripristina data originale ({originalDate})
+                      </button>
+                    )}
                   </div>
                 )}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
