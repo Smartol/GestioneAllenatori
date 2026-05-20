@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
+import NextEventPopup from './NextEventPopup'
 
 
 function useTheme(profile) {
@@ -44,6 +45,7 @@ export default function AppShell() {
 
   return (
     <div className={`app-shell ${useTheme(profile)}`}>
+      {showPopup && <NextEventPopup onClose={() => setShowPopup(false)} />}
       {showProfile && (
         <ProfilePopup
           profile={profile}

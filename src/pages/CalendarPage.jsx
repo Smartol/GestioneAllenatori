@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { addDays, addMonths, subMonths, startOfWeek, format, isSameDay, getDay, isBefore, startOfDay } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { useCalendarData, computeCoverage, getCovColor } from '../hooks/useCalendarData'
+import { useAuth } from '../hooks/useAuth'
 import EventModal from '../components/EventModal'
 
 const TODAY = new Date()
@@ -27,6 +29,7 @@ export default function CalendarPage() {
   const [view, setView] = useState('week')
   const [currentDate, setCurrentDate] = useState(TODAY)
   const [selectedEvent, setSelectedEvent] = useState(null)
+  const { isAdmin } = useAuth()
 
   const { events, attendances, loading, refetch } = useCalendarData(currentDate, view)
 
@@ -58,7 +61,6 @@ export default function CalendarPage() {
     return format(currentDate, 'MMMM yyyy', { locale: it })
   }
 
-  // Raggruppa gli eventi per data
   function getEventsForDay(date) {
     const dateStr = format(date, 'yyyy-MM-dd')
     const dayEvents = (events || []).filter(ev => ev.dateStr === dateStr)
@@ -66,12 +68,10 @@ export default function CalendarPage() {
     return dayEvents.map(ev => {
       let att = []
       if (ev.eventType === 'school') {
-        // Per scuole, filtra per school_class_instance_id
-        att = attendances.filter(a => 
+        att = attendances.filter(a =>
           ev.classBlock?.some(cls => cls.id === a.school_class_instance_id)
         )
       } else {
-        // Per altri eventi, filtra per instance_id
         att = attendances.filter(a => a.instance_id === ev.instance_id)
       }
       const coverage = computeCoverage(ev.slots, att)
@@ -86,7 +86,6 @@ export default function CalendarPage() {
 
   return (
     <div>
-      {/* Header navigazione */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button className="btn btn-secondary btn-sm" onClick={() => navigate(-1)}>↑</button>
@@ -116,7 +115,7 @@ export default function CalendarPage() {
       </div>
 
       {view === 'week'
-        ? <WeekView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} getWeekDays={getWeekDays} attendances={attendances} />
+        ? <WeekView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} getWeekDays={getWeekDays} attendances={attendances} isAdmin={isAdmin} />
         : <MonthView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} />
       }
 
@@ -133,7 +132,6 @@ export default function CalendarPage() {
           event={selectedEvent}
           attendances={
             selectedEvent.eventType === 'school'
-              // Per scuola: tutte le presenze per le classi di quel giorno
               ? attendances.filter(a =>
                   (selectedEvent.allClassesForDate || selectedEvent.classBlock || [])
                     .some(cls => a.school_class_instance_id === cls.id)
@@ -153,7 +151,8 @@ export default function CalendarPage() {
 /* ============================================================
    WEEK VIEW
    ============================================================ */
-function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, attendances }) {
+function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, attendances, isAdmin }) {
+  const navigate = useNavigate()
   const days = getWeekDays(currentDate)
   const todayStart = startOfDay(TODAY)
 
@@ -190,18 +189,19 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
             const dayName = format(d, 'EEE', { locale: it }).toUpperCase()
             const dayNum = format(d, 'd')
             const monthName = format(d, 'MMM', { locale: it })
+            const dateStr = format(d, 'yyyy-MM-dd')
 
             return (
               <div key={di} style={{
                 display: 'flex',
-                border: isToday ? '2px solid #1a1a1a' : '1px solid #e5e5e5',
+                border: isToday ? '2px solid var(--color-primary)' : '1px solid #e5e5e5',
                 borderRadius: 10, overflow: 'hidden', marginBottom: 4,
                 opacity: isPast ? 0.65 : 1,
               }}>
                 {/* Colonna giorno */}
                 <div style={{
                   width: 72, minWidth: 72,
-                  background: isToday ? '#1a1a1a' : isPast ? '#f5f5f4' : '#f8f8f7',
+                  background: isToday ? 'var(--color-primary)' : isPast ? '#f5f5f4' : '#f8f8f7',
                   padding: '8px 10px',
                   display: 'flex', flexDirection: 'column', justifyContent: 'center',
                   flexShrink: 0,
@@ -260,7 +260,6 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
                           {ev.eventType === 'school' && ev.classBlock?.length > 0 ? (
-                            // SCUOLA: ogni classe su riga separata con allenatori
                             <div>
                               <div style={{ fontSize: 11, fontWeight: 700, color: isPast ? '#999' : '#1a1a1a', marginBottom: 2 }}>
                                 {ev.title} ★
@@ -277,14 +276,13 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
                                       {coaches.length === 0 ? '⚠ nessuno' : coaches.join(', ')}
                                     </span>
                                     <span style={{ color: '#aaa', flexShrink: 0 }}>
-                                      {cls.start_time?.slice(0,5)}
+                                      {cls.start_time?.slice(0, 5)}
                                     </span>
                                   </div>
                                 )
                               })}
                             </div>
                           ) : (
-                            // ALTRI TIPI: titolo + allenatori
                             <div>
                               <div style={{ fontSize: 12, fontWeight: 600, color: isPast ? '#999' : '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {ev.title}{isActivity ? ' ★' : ''}
@@ -308,6 +306,23 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
                     )
                   })}
                 </div>
+
+                {/* BOTTONE + per admin */}
+                {isAdmin && (
+                  <div
+                    onClick={() => navigate(`/admin?date=${dateStr}&new=true`)}
+                    style={{
+                      width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: '#fff', borderLeft: '1px solid #f0f0f0',
+                      cursor: 'pointer', color: '#ddd', fontSize: 20, fontWeight: 300,
+                      flexShrink: 0, transition: 'all 0.15s', userSelect: 'none',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-primary)'; e.currentTarget.style.background = '#f8f8f7' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = '#ddd'; e.currentTarget.style.background = '#fff' }}
+                  >
+                    +
+                  </div>
+                )}
               </div>
             )
           })}
@@ -355,7 +370,7 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
               <div style={{
                 fontSize: 11, fontWeight: 500, width: 20, height: 20, borderRadius: '50%',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2,
-                background: isToday ? '#1a1a1a' : 'transparent',
+                background: isToday ? 'var(--color-primary)' : 'transparent',
                 color: isToday ? '#fff' : isThisMonth ? (isPast ? '#ccc' : '#555') : '#ddd',
               }}>{d.getDate()}</div>
               {evs.map(ev => {

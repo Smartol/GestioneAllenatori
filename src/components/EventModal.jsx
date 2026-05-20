@@ -73,7 +73,7 @@ function OptionCard({ selected, onToggle, isRadio, isJolly, isEmergency, childre
 /* ============================================================
    EVENT MODAL — entry point
    ============================================================ */
-export default function EventModal({ event, attendances, onClose, onRefetch, onDelete }) {
+export default function EventModal({ event, attendances, onClose, onRefetch, onDelete, embedded }) {
   const { profile, isAdmin } = useAuth()
   const [view, setView] = useState('main')
 
@@ -90,67 +90,71 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
 
   const typeIcon = { training:'🏉', festival:'🏆', school:'📚', other:'🎉' }
 
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ display:'flex', flexDirection:'column', maxHeight:'90vh' }}>
-
-        {/* HEADER */}
-        <div className="modal-head">
-          <div style={{ flex:1 }}>
-            <div className="modal-title">
-              {typeIcon[event.eventType] || '📅'} {event.title}
-              {event.eventType === 'school' && ' ★'}
-            </div>
-            <div className="modal-sub">{subtitle}</div>
-            {event.location && <div className="modal-sub">📍 {event.location}</div>}
-            {event.hosting_team && <div className="modal-sub">🏠 {event.hosting_team}</div>}
+  const inner = (
+    <div className="modal-box" style={{
+      display: 'flex', flexDirection: 'column',
+      maxHeight: embedded ? '65vh' : '90vh',
+      borderRadius: 14,
+      boxShadow: embedded ? 'none' : '0 4px 24px rgba(0,0,0,0.14)',
+      maxWidth: '100%',
+    }}>
+      {/* HEADER */}
+      <div className="modal-head">
+        <div style={{ flex:1 }}>
+          <div className="modal-title">
+            {typeIcon[event.eventType] || '📅'} {event.title}
+            {event.eventType === 'school' && ' ★'}
           </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <div className="modal-sub">{subtitle}</div>
+          {event.location && <div className="modal-sub">📍 {event.location}</div>}
+          {event.hosting_team && <div className="modal-sub">🏠 {event.hosting_team}</div>}
         </div>
+        <button className="modal-close" onClick={onClose}>✕</button>
+      </div>
 
-        {/* BODY */}
-        <div className="modal-body" style={{ flex:1, overflowY:'auto' }}>
-          {view === 'main' && (
-            <MainBody
-              event={event}
-              attendances={attendances}
-              myAttendances={myAttendances}
-              isSigned={isSigned}
-              profile={profile}
-              isAdmin={isAdmin}
-              onSetView={setView}
-              onRefetch={onRefetch}
-            />
-          )}
-          {view === 'note-form' && (
-            <NoteForm event={event} profile={profile}
-              onDone={() => { onRefetch(); setView('main') }}
-              onCancel={() => setView('main')} />
-          )}
-          {view === 'edit-choice' && (
-            <EditChoiceView event={event}
-              onEditInstance={() => setView('edit-instance')}
-              onCancel={() => setView('main')} />
-          )}
-          {view === 'edit-instance' && (
-            <EditInstanceView event={event}
-              onDone={() => { onRefetch(); setView('main') }}
-              onCancel={() => setView('main')} />
-          )}
-        </div>
-
-        {/* FOOTER */}
+      {/* BODY */}
+      <div className="modal-body" style={{ flex:1, overflowY:'auto' }}>
         {view === 'main' && (
-          <PresenceFooter
-            event={event}
-            profile={profile}
-            attendances={attendances}
-            myAttendances={myAttendances}
-            isSigned={isSigned}
-            onRefetch={onRefetch}
+          <MainBody
+            event={event} attendances={attendances}
+            myAttendances={myAttendances} isSigned={isSigned}
+            profile={profile} isAdmin={isAdmin}
+            onSetView={setView} onRefetch={onRefetch}
           />
         )}
+        {view === 'note-form' && (
+          <NoteForm event={event} profile={profile}
+            onDone={() => { onRefetch(); setView('main') }}
+            onCancel={() => setView('main')} />
+        )}
+        {view === 'edit-choice' && (
+          <EditChoiceView event={event}
+            onEditInstance={() => setView('edit-instance')}
+            onCancel={() => setView('main')} />
+        )}
+        {view === 'edit-instance' && (
+          <EditInstanceView event={event}
+            onDone={() => { onRefetch(); setView('main') }}
+            onCancel={() => setView('main')} />
+        )}
       </div>
+
+      {/* FOOTER */}
+      {view === 'main' && (
+        <PresenceFooter
+          event={event} profile={profile}
+          attendances={attendances} myAttendances={myAttendances}
+          isSigned={isSigned} onRefetch={onRefetch}
+        />
+      )}
+    </div>
+  )
+
+  if (embedded) return inner
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      {inner}
     </div>
   )
 }
@@ -401,8 +405,10 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
   
   setSaving(true)
   try {
+    // Crea event_instances SOLO per training/festival/other, NON per school
     let instanceId = event.instance_id
-    if (!instanceId) {
+    
+    if (!isSchool && !instanceId) {
       const { data: inst, error } = await supabase
         .from('event_instances')
         .insert({ event_id: event.id, instance_date: event.dateStr })
@@ -420,6 +426,7 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
     }
 
     if (isSchool) {
+      // SCUOLA: salva direttamente con school_class_instance_id, senza instance_id
       const classesToRegister = Array.from(selectedClassIds).filter(classId => {
         const alreadyRegistered = myAttendances.some(a => 
           a.school_class_instance_id === classId && !a.is_jolly
@@ -428,22 +435,22 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
       })
 
       if (classesToRegister.length > 0) {
+        // Elimina vecchie presenze non-jolly per questa data
         const existingSchoolAtt = myAttendances.filter(a => !a.is_jolly && a.school_class_instance_id)
         for (const att of existingSchoolAtt) {
           await supabase.from('attendances_new').delete().eq('id', att.id)
         }
 
+        // Inserisci nuove presenze - SENZA instance_id
         const attendancesToInsert = classesToRegister.map(classId => ({
           coach_id: profile.id,
-          instance_id: instanceId,
-          is_jolly: false,
           school_class_instance_id: classId,
+          is_jolly: false,
         }))
         
         if (isEmergency) {
           attendancesToInsert.push({
             coach_id: profile.id,
-            instance_id: instanceId,
             is_jolly: true,
             notes: emergencyNote || null,
           })
@@ -453,7 +460,7 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
         if (error) throw error
       }
     } else {
-      // TRAINING / FESTIVAL / OTHER
+      // TRAINING / FESTIVAL / OTHER: usa instance_id
       const payload = {
         coach_id: profile.id,
         instance_id: instanceId,
