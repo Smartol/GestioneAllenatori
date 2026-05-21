@@ -66,11 +66,11 @@ export default function AppShell() {
             onClick={() => setShowProfile(true)}
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              background: 'none', border: '1px solid #e5e5e5',
+              background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
               borderRadius: 20, padding: '4px 12px', cursor: 'pointer',
             }}
           >
-            <span style={{ fontSize: 13, color: '#1a1a1a', fontWeight: 500 }}>{profile?.full_name}</span>
+            <span style={{ fontSize: 13, color: '#ffffff', fontWeight: 500 }}>{profile?.full_name}</span>
             <span className={`badge ${roleBadgeClass(profile?.role)}`}>{roleLabel(profile?.role)}</span>
           </button>
         </div>
