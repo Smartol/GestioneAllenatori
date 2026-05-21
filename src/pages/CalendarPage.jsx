@@ -64,7 +64,6 @@ export default function CalendarPage() {
   function getEventsForDay(date) {
     const dateStr = format(date, 'yyyy-MM-dd')
     const dayEvents = (events || []).filter(ev => ev.dateStr === dateStr)
-
     return dayEvents.map(ev => {
       let att = []
       if (ev.eventType === 'school') {
@@ -115,8 +114,20 @@ export default function CalendarPage() {
       </div>
 
       {view === 'week'
-        ? <WeekView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} getWeekDays={getWeekDays} attendances={attendances} isAdmin={isAdmin} />
-        : <MonthView currentDate={currentDate} getEventsForDay={getEventsForDay} onEventClick={setSelectedEvent} />
+        ? <WeekView
+            currentDate={currentDate}
+            getEventsForDay={getEventsForDay}
+            onEventClick={setSelectedEvent}
+            getWeekDays={getWeekDays}
+            attendances={attendances}
+            isAdmin={isAdmin}
+          />
+        : <MonthView
+            currentDate={currentDate}
+            getEventsForDay={getEventsForDay}
+            onEventClick={setSelectedEvent}
+            isAdmin={isAdmin}
+          />
       }
 
       <div className="cal-legend" style={{ marginTop: 12 }}>
@@ -198,7 +209,6 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
                 borderRadius: 10, overflow: 'hidden', marginBottom: 4,
                 opacity: isPast ? 0.65 : 1,
               }}>
-                {/* Colonna giorno */}
                 <div style={{
                   width: 72, minWidth: 72,
                   background: isToday ? 'var(--color-primary)' : isPast ? '#f5f5f4' : '#f8f8f7',
@@ -222,7 +232,6 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
                   )}
                 </div>
 
-                {/* Area eventi */}
                 <div style={{
                   flex: 1, padding: evs.length > 0 ? '6px 8px' : '0 8px',
                   background: '#fff',
@@ -307,7 +316,6 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
                   })}
                 </div>
 
-                {/* BOTTONE + per admin */}
                 {isAdmin && (
                   <div
                     onClick={() => navigate(`/admin?date=${dateStr}&new=true`)}
@@ -336,8 +344,10 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
    MONTH VIEW
    ============================================================ */
 const DAYS_SHORT = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
+const MAX_EVENTS_SHOWN = 3
 
-function MonthView({ currentDate, getEventsForDay, onEventClick }) {
+function MonthView({ currentDate, getEventsForDay, onEventClick, isAdmin }) {
+  const navigate = useNavigate()
   const y = currentDate.getFullYear(), m = currentDate.getMonth()
   const first = new Date(y, m, 1)
   const fd = getDay(first) === 0 ? 7 : getDay(first)
@@ -350,60 +360,112 @@ function MonthView({ currentDate, getEventsForDay, onEventClick }) {
 
   return (
     <div style={{ border: '1px solid #e5e5e5', borderRadius: 12, overflow: 'hidden' }}>
+      {/* Header giorni */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
         {DAYS_SHORT.map(d => (
-          <div key={d} style={{ textAlign: 'center', padding: '6px 2px', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', background: '#f8f8f7', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #e5e5e5' }}>{d}</div>
+          <div key={d} style={{
+            textAlign: 'center', padding: '6px 2px', fontSize: 10, color: '#888',
+            textTransform: 'uppercase', letterSpacing: '0.04em',
+            background: '#f8f8f7', borderBottom: '1px solid #e5e5e5',
+            borderRight: '1px solid #e5e5e5',
+          }}>{d}</div>
         ))}
+      </div>
+
+      {/* Celle giorni */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
         {cells.map((d, i) => {
           const isThisMonth = d.getMonth() === m
           const isToday = isSameDay(d, TODAY)
           const isPast = isBefore(startOfDay(d), todayStart)
           const evs = getEventsForDay(d)
           const isSunday = getDay(d) === 0
+          const dateStr = format(d, 'yyyy-MM-dd')
+          const shown = evs.slice(0, MAX_EVENTS_SHOWN)
+          const hidden = evs.length - MAX_EVENTS_SHOWN
+
           return (
             <div key={i} style={{
-              minHeight: 72, padding: 3,
+              /* Altezza fissa — non cresce con i contenuti */
+              height: 90,
+              overflow: 'hidden',
+              padding: '3px 3px 2px',
               borderRight: isSunday ? '3px solid #1a1a1a' : ((i + 1) % 7 !== 0 ? '1px solid #e5e5e5' : 'none'),
               borderBottom: '1px solid #e5e5e5',
               background: isPast ? '#fafafa' : '#fff',
+              position: 'relative',
             }}>
-              <div style={{
-                fontSize: 11, fontWeight: 500, width: 20, height: 20, borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2,
-                background: isToday ? 'var(--color-primary)' : 'transparent',
-                color: isToday ? '#fff' : isThisMonth ? (isPast ? '#ccc' : '#555') : '#ddd',
-              }}>{d.getDate()}</div>
-              {evs.map(ev => {
+
+              {/* Riga header: numero giorno + bottone + */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 500,
+                  width: 20, height: 20, borderRadius: '50%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                  background: isToday ? 'var(--color-primary)' : 'transparent',
+                  color: isToday ? '#fff' : isThisMonth ? (isPast ? '#ccc' : '#555') : '#ddd',
+                }}>{d.getDate()}</div>
+
+                {/* Bottone + admin — visibile solo su hover della cella */}
+                {isAdmin && !isPast && (
+                  <div
+                    onClick={e => { e.stopPropagation(); navigate(`/admin?date=${dateStr}&new=true`) }}
+                    className="month-add-btn"
+                    style={{
+                      width: 18, height: 18, borderRadius: '50%',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 14, lineHeight: 1, cursor: 'pointer',
+                      color: '#ccc', fontWeight: 400, flexShrink: 0,
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-primary)'; e.currentTarget.style.background = '#f0f0ee' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = '#ccc'; e.currentTarget.style.background = 'transparent' }}
+                    title="Aggiungi evento"
+                  >+</div>
+                )}
+              </div>
+
+              {/* Eventi — max MAX_EVENTS_SHOWN */}
+              {shown.map(ev => {
                 const color = getCovColor(ev.coverage)
                 const isActivity = ev.eventType !== 'training'
                 const bg = isPast ? '#ebebeb' : isActivity ? '#f5e6e9' : color === 'green' ? '#d4edda' : color === 'orange' ? '#fde8c8' : '#fcd5d5'
                 const fg = isPast ? '#aaa' : isActivity ? '#6b1a2a' : color === 'green' ? '#2e7d4f' : color === 'orange' ? '#b8610a' : '#b91c1c'
                 return (
-                  <div key={`${ev.id}-${ev.instance_id}-${ev.blockIdx ?? 'x'}`}
-                    style={{
-                      fontSize: 9, fontWeight: 500, borderRadius: 3, padding: '2px 4px', marginBottom: 2,
-                      cursor: 'pointer', overflow: 'hidden',
-                      background: bg, color: fg, borderLeft: `2px solid ${fg}`,
-                      opacity: isPast ? 0.7 : 1,
-                    }}
+                  <div
+                    key={`${ev.id}-${ev.instance_id}-${ev.blockIdx ?? 'x'}`}
                     onClick={() => onEventClick(ev)}
+                    style={{
+                      fontSize: 9, fontWeight: 500, borderRadius: 3,
+                      padding: '2px 4px', marginBottom: 2,
+                      cursor: 'pointer',
+                      background: bg, color: fg,
+                      borderLeft: `2px solid ${fg}`,
+                      opacity: isPast ? 0.7 : 1,
+                      /* Testo su una riga, tronca */
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}
                   >
-                    <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {ev.title}{isActivity ? ' ★' : ''}
-                      {ev.eventType === 'school' && ev.classBlock?.length > 0 && (
-                        <span style={{ fontWeight: 400, opacity: 0.8 }}>
-                          {' '}{ev.classBlock.map(c => `${c.grade}${c.section}`).join('·')}
-                        </span>
-                      )}
-                    </div>
-                    {ev.coachNames?.length > 0 && (
-                      <div style={{ fontSize: 8, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {ev.coachNames.join(', ')}
-                      </div>
+                    {ev.title}{isActivity ? ' ★' : ''}
+                    {ev.eventType === 'school' && ev.classBlock?.length > 0 && (
+                      <span style={{ fontWeight: 400, opacity: 0.8 }}>
+                        {' '}{ev.classBlock.map(c => `${c.grade}${c.section}`).join('·')}
+                      </span>
                     )}
                   </div>
                 )
               })}
+
+              {/* Badge "+N altri" */}
+              {hidden > 0 && (
+                <div style={{
+                  fontSize: 9, color: '#888', fontWeight: 500,
+                  padding: '1px 4px', cursor: 'default',
+                }}>
+                  +{hidden} altri
+                </div>
+              )}
             </div>
           )
         })}
