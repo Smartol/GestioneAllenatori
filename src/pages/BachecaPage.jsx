@@ -2,15 +2,101 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 
+function Lightbox({ images, startIndex = 0, caption, onClose }) {
+  const [idx, setIdx] = useState(startIndex)
+  const total = images.length
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'ArrowRight') setIdx(i => Math.min(i + 1, total - 1))
+      if (e.key === 'ArrowLeft') setIdx(i => Math.max(i - 1, 0))
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [total, onClose])
+
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.92)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <button onClick={onClose} style={{
+        position: 'absolute', top: 16, right: 16,
+        background: 'rgba(255,255,255,0.15)', border: 'none',
+        color: '#fff', borderRadius: '50%', width: 36, height: 36,
+        fontSize: 18, cursor: 'pointer', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+      }}>X</button>
+
+      <img src={images[idx]} alt="" style={{
+        maxWidth: '90vw', maxHeight: '65vh',
+        objectFit: 'contain', borderRadius: 8,
+        boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+      }} />
+
+      {caption && (
+        <div style={{
+          marginTop: 14, color: 'rgba(255,255,255,0.85)',
+          fontSize: 13, maxWidth: 480, textAlign: 'center',
+          lineHeight: 1.5, whiteSpace: 'pre-wrap', padding: '0 8px',
+        }}>
+          {caption}
+        </div>
+      )}
+
+      {total > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 14 }}>
+          <button onClick={() => setIdx(i => Math.max(i - 1, 0))} disabled={idx === 0}
+            style={{
+              background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
+              borderRadius: '50%', width: 40, height: 40, fontSize: 20,
+              cursor: idx === 0 ? 'default' : 'pointer', opacity: idx === 0 ? 0.3 : 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>{'<'}</button>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{idx + 1} / {total}</span>
+          <button onClick={() => setIdx(i => Math.min(i + 1, total - 1))} disabled={idx === total - 1}
+            style={{
+              background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
+              borderRadius: '50%', width: 40, height: 40, fontSize: 20,
+              cursor: idx === total - 1 ? 'default' : 'pointer', opacity: idx === total - 1 ? 0.3 : 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>{'>'}</button>
+        </div>
+      )}
+
+      {total > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          {images.map((src, i) => (
+            <img key={i} src={src} alt="" onClick={() => setIdx(i)} style={{
+              width: 48, height: 48, objectFit: 'cover', borderRadius: 6,
+              cursor: 'pointer', transition: 'all 0.15s',
+              border: i === idx ? '2px solid #fff' : '2px solid transparent',
+              opacity: i === idx ? 1 : 0.5,
+            }} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function BachecaPage() {
   const { profile, isAdmin } = useAuth()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const [content, setContent] = useState('')
-  const [images, setImages] = useState([]) // array di File
-  const [previews, setPreviews] = useState([]) // array di URL preview
+  const [images, setImages] = useState([])
+  const [previews, setPreviews] = useState([])
   const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [editingPost, setEditingPost] = useState(null)
   const fileInputRef = useRef()
 
   const canPost = isAdmin || profile?.role === 'coach'
@@ -21,7 +107,7 @@ export default function BachecaPage() {
     setLoading(true)
     const { data } = await supabase
       .from('board_posts')
-      .select(`*, author:profiles(id, full_name, role), board_post_images(id, storage_path)`)
+      .select('*, author:profiles(id, full_name, role), board_post_images(id, storage_path)')
       .order('created_at', { ascending: false })
     setPosts(data || [])
     setLoading(false)
@@ -31,69 +117,83 @@ export default function BachecaPage() {
     const files = Array.from(e.target.files)
     if (!files.length) return
     setImages(prev => [...prev, ...files])
-    const newPreviews = files.map(f => URL.createObjectURL(f))
-    setPreviews(prev => [...prev, ...newPreviews])
+    setPreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
   }
 
   function removeImage(idx) {
     setImages(prev => prev.filter((_, i) => i !== idx))
-    setPreviews(prev => {
-      URL.revokeObjectURL(prev[idx])
-      return prev.filter((_, i) => i !== idx)
-    })
+    setPreviews(prev => { URL.revokeObjectURL(prev[idx]); return prev.filter((_, i) => i !== idx) })
+  }
+
+  function resetForm() {
+    setContent('')
+    setImages([])
+    setPreviews(p => { p.forEach(u => URL.revokeObjectURL(u)); return [] })
+    setShowForm(false)
+    setEditingPost(null)
   }
 
   async function savePost() {
     if (!content.trim() && images.length === 0) return
     setSaving(true)
 
-    // Crea il post
-    const { data: post, error } = await supabase
-      .from('board_posts')
-      .insert({ author_id: profile.id, content: content.trim() || null })
-      .select()
-      .single()
-
-    if (error) { setSaving(false); return }
-
-    // Carica le immagini su Supabase Storage se presenti
-    if (images.length > 0) {
+    if (editingPost) {
+      await supabase.from('board_posts').update({ content: content.trim() || null }).eq('id', editingPost.id)
       for (const file of images) {
         const ext = file.name.split('.').pop()
-        const path = `bacheca/${post.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
-        const { error: uploadError } = await supabase.storage
-          .from('board-images')
-          .upload(path, file)
-        if (!uploadError) {
-          await supabase.from('board_post_images').insert({ post_id: post.id, storage_path: path })
-        }
+        const path = 'bacheca/' + editingPost.id + '/' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.' + ext
+        const { error: uploadError } = await supabase.storage.from('board-images').upload(path, file)
+        if (!uploadError) await supabase.from('board_post_images').insert({ post_id: editingPost.id, storage_path: path })
+      }
+    } else {
+      const { data: post, error } = await supabase
+        .from('board_posts')
+        .insert({ author_id: profile.id, content: content.trim() || null })
+        .select().single()
+      if (error) { setSaving(false); return }
+      for (const file of images) {
+        const ext = file.name.split('.').pop()
+        const path = 'bacheca/' + post.id + '/' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.' + ext
+        const { error: uploadError } = await supabase.storage.from('board-images').upload(path, file)
+        if (!uploadError) await supabase.from('board_post_images').insert({ post_id: post.id, storage_path: path })
       }
     }
 
     setSaving(false)
-    setContent('')
-    setImages([])
-    setPreviews(p => { p.forEach(u => URL.revokeObjectURL(u)); return [] })
-    setShowForm(false)
+    resetForm()
     loadPosts()
   }
 
   async function deletePost(postId) {
     if (!window.confirm('Eliminare questo post?')) return
-    // Elimina immagini dallo storage
     const post = posts.find(p => p.id === postId)
     if (post?.board_post_images?.length) {
-      await supabase.storage
-        .from('board-images')
-        .remove(post.board_post_images.map(i => i.storage_path))
+      await supabase.storage.from('board-images').remove(post.board_post_images.map(i => i.storage_path))
     }
     await supabase.from('board_posts').delete().eq('id', postId)
     loadPosts()
   }
 
-  function canDelete(post) {
-    if (isAdmin) return true
-    return post.author_id === profile?.id
+  async function deletePostImage(postId, img) {
+    await supabase.storage.from('board-images').remove([img.storage_path])
+    await supabase.from('board_post_images').delete().eq('id', img.id)
+    setEditingPost(prev => prev ? { ...prev, board_post_images: prev.board_post_images.filter(i => i.id !== img.id) } : null)
+    loadPosts()
+  }
+
+  function startEdit(post) {
+    setEditingPost(post)
+    setContent(post.content || '')
+    setImages([])
+    setPreviews([])
+    setShowForm(true)
+  }
+
+  function canEdit(post) { return isAdmin || post.author_id === profile?.id }
+
+  function getImageUrl(path) {
+    const { data } = supabase.storage.from('board-images').getPublicUrl(path)
+    return data?.publicUrl
   }
 
   function formatDate(ts) {
@@ -102,67 +202,55 @@ export default function BachecaPage() {
       ' ' + d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
   }
 
-  function getImageUrl(path) {
-    const { data } = supabase.storage.from('board-images').getPublicUrl(path)
-    return data?.publicUrl
-  }
-
-  const roleLabel = (role) => {
-    if (role === 'admin') return 'Admin'
-    if (role === 'sostegno') return 'Sostegno'
-    return 'Allenatore'
-  }
-
-  const roleBadgeClass = (role) => {
-    if (role === 'admin') return 'badge-admin'
-    if (role === 'sostegno') return 'badge-sostegno'
-    return 'badge-coach'
-  }
+  const roleLabel = r => r === 'admin' ? 'Admin' : r === 'sostegno' ? 'Sostegno' : 'Allenatore'
+  const roleBadgeClass = r => r === 'admin' ? 'badge-admin' : r === 'sostegno' ? 'badge-sostegno' : 'badge-coach'
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>📌 Bacheca</div>
+        <div style={{ fontSize: 18, fontWeight: 600 }}>Bacheca</div>
         {canPost && !showForm && (
-          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
-            + Nuovo post
-          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>+ Nuovo post</button>
         )}
       </div>
 
-      {/* Form nuovo post */}
       {showForm && canPost && (
         <div className="card" style={{ marginBottom: 20 }}>
-          <div style={{ fontWeight: 500, marginBottom: 12 }}>Nuovo post</div>
+          <div style={{ fontWeight: 500, marginBottom: 12 }}>{editingPost ? 'Modifica post' : 'Nuovo post'}</div>
           <div className="field">
             <label>Testo (opzionale se aggiungi immagini)</label>
-            <textarea
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              placeholder="Scrivi un messaggio per il gruppo..."
-              rows={4}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }}
-            />
+            <textarea value={content} onChange={e => setContent(e.target.value)}
+              placeholder="Scrivi un messaggio per il gruppo..." rows={4}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} />
           </div>
 
-          {/* Preview immagini */}
+          {editingPost?.board_post_images?.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: '#555', fontWeight: 500, marginBottom: 6 }}>Immagini esistenti</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {editingPost.board_post_images.map(img => (
+                  <div key={img.id} style={{ position: 'relative' }}>
+                    <img src={getImageUrl(img.storage_path)} alt=""
+                      style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e5e5' }} />
+                    <button onClick={() => deletePostImage(editingPost.id, img)}
+                      style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {previews.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
               {previews.map((url, i) => (
                 <div key={i} style={{ position: 'relative' }}>
-                  <img
-                    src={url} alt=""
-                    style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e5e5' }}
-                  />
-                  <button
-                    onClick={() => removeImage(i)}
-                    style={{
-                      position: 'absolute', top: -6, right: -6, width: 20, height: 20,
-                      borderRadius: '50%', background: '#ef4444', color: '#fff',
-                      border: 'none', cursor: 'pointer', fontSize: 12, lineHeight: 1,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center'
-                    }}
-                  >×</button>
+                  <img src={url} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e5e5' }} />
+                  <button onClick={() => removeImage(i)}
+                    style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    x
+                  </button>
                 </div>
               ))}
             </div>
@@ -170,30 +258,18 @@ export default function BachecaPage() {
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()}>
-              🖼️ Aggiungi immagine
+              Aggiungi immagine
             </button>
-            <input
-              ref={fileInputRef} type="file" accept="image/*" multiple
-              style={{ display: 'none' }} onChange={handleImageSelect}
-            />
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={savePost}
-              disabled={(!content.trim() && images.length === 0) || saving}
-            >
-              {saving ? 'Pubblicazione...' : 'Pubblica'}
+            <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleImageSelect} />
+            <button className="btn btn-primary btn-sm" onClick={savePost}
+              disabled={(!content.trim() && images.length === 0) || saving}>
+              {saving ? 'Pubblicazione...' : editingPost ? 'Salva modifiche' : 'Pubblica'}
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => {
-              setShowForm(false); setContent(''); setImages([])
-              setPreviews(p => { p.forEach(u => URL.revokeObjectURL(u)); return [] })
-            }}>
-              Annulla
-            </button>
+            <button className="btn btn-secondary btn-sm" onClick={resetForm}>Annulla</button>
           </div>
         </div>
       )}
 
-      {/* Lista post */}
       {loading
         ? <p style={{ textAlign: 'center', color: '#aaa', fontSize: 13 }}>Caricamento...</p>
         : posts.length === 0
@@ -201,47 +277,59 @@ export default function BachecaPage() {
               Nessun post in bacheca. {canPost ? 'Crea il primo!' : ''}
             </div>
           : posts.map(post => (
-            <div className="card" key={post.id} style={{ marginBottom: 12 }}>
-              {/* Header post */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div>
-                  <span style={{ fontWeight: 500, fontSize: 13 }}>{post.author?.full_name}</span>
-                  {' '}
-                  <span className={`badge ${roleBadgeClass(post.author?.role)}`}>
-                    {roleLabel(post.author?.role)}
-                  </span>
-                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{formatDate(post.created_at)}</div>
-                </div>
-                {canDelete(post) && (
-                  <button className="btn btn-danger btn-sm" onClick={() => deletePost(post.id)}>
-                    Elimina
-                  </button>
-                )}
-              </div>
-
-              {/* Testo */}
-              {post.content && (
-                <p style={{ fontSize: 13, color: '#1a1a1a', whiteSpace: 'pre-wrap', marginBottom: post.board_post_images?.length ? 10 : 0 }}>
-                  {post.content}
-                </p>
-              )}
-
-              {/* Immagini */}
-              {post.board_post_images?.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {post.board_post_images.map(img => (
-                    <a key={img.id} href={getImageUrl(img.storage_path)} target="_blank" rel="noopener noreferrer">
-                      <img
-                        src={getImageUrl(img.storage_path)} alt=""
-                        style={{ width: 120, height: 120, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e5e5', cursor: 'pointer' }}
-                      />
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
+            <PostCard key={post.id} post={post} canEdit={canEdit(post)}
+              onEdit={() => startEdit(post)} onDelete={() => deletePost(post.id)}
+              getImageUrl={getImageUrl} formatDate={formatDate}
+              roleLabel={roleLabel} roleBadgeClass={roleBadgeClass} />
           ))
       }
+    </div>
+  )
+}
+
+function PostCard({ post, canEdit, onEdit, onDelete, getImageUrl, formatDate, roleLabel, roleBadgeClass }) {
+  const [lightbox, setLightbox] = useState(null)
+  const imageUrls = (post.board_post_images || []).map(img => getImageUrl(img.storage_path)).filter(Boolean)
+
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      {lightbox && (
+        <Lightbox images={lightbox.urls} startIndex={lightbox.startIndex}
+          caption={post.content} onClose={() => setLightbox(null)} />
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+        <div>
+          <span style={{ fontWeight: 500, fontSize: 13 }}>{post.author?.full_name}</span>
+          {' '}
+          <span className={'badge ' + roleBadgeClass(post.author?.role)}>{roleLabel(post.author?.role)}</span>
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{formatDate(post.created_at)}</div>
+        </div>
+        {canEdit && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={onEdit}
+              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #e5e5e5', background: '#f8f8f7', color: '#555', cursor: 'pointer' }}>
+              Modifica
+            </button>
+            <button className="btn btn-danger btn-sm" onClick={onDelete}>Elimina</button>
+          </div>
+        )}
+      </div>
+      {post.content && (
+        <p style={{ fontSize: 13, color: '#1a1a1a', whiteSpace: 'pre-wrap', marginBottom: imageUrls.length ? 10 : 0 }}>
+          {post.content}
+        </p>
+      )}
+      {imageUrls.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {imageUrls.map((url, i) => (
+            <img key={i} src={url} alt=""
+              onClick={() => setLightbox({ urls: imageUrls, startIndex: i })}
+              style={{ width: 120, height: 120, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e5e5', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '1'} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
