@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { startOfMonth, endOfMonth, startOfDay, isSameDay, addDays, format, startOfWeek } from 'date-fns'
+import { useAuth } from '../hooks/useAuth'
 
 const TODAY = new Date()
 
@@ -41,7 +42,6 @@ function generateRecurringDates(event, rangeStart, rangeEnd) {
   return dates
 }
 
-// Raggruppa classi in blocchi: consecutive (diff <= pausa) → stesso blocco
 function groupClasses(classes, pauseMinutes = 15) {
   if (!classes || classes.length === 0) return []
 
@@ -65,7 +65,6 @@ function groupClasses(classes, pauseMinutes = 15) {
       const last     = current[current.length - 1]
       const lastMin  = toMin(last.start_time)
       const thisMin  = toMin(cls.start_time)
-      // Se non c'è orario o sono "consecutive" (diff <= pauseMinutes) → stesso blocco
       if (lastMin === null || thisMin === null || (thisMin - lastMin) <= pauseMinutes) {
         current.push(cls)
       } else {
@@ -79,8 +78,10 @@ function groupClasses(classes, pauseMinutes = 15) {
 }
 
 export function useCalendarData(currentDate, view) {
+  const { profile } = useAuth()
   const [events, setEvents] = useState([])
   const [attendances, setAttendances] = useState([])
+  const [absences, setAbsences] = useState([]) // assenze proprie
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { fetchData() }, [currentDate, view])
@@ -92,7 +93,6 @@ export function useCalendarData(currentDate, view) {
     const endStr   = format(rangeEnd,   'yyyy-MM-dd')
 
     try {
-      // 1. Tutti gli eventi attivi con slot
       const { data: allEvents, error: evError } = await supabase
         .from('events')
         .select(`
@@ -111,7 +111,6 @@ export function useCalendarData(currentDate, view) {
         .eq('active', true)
       if (evError) throw evError
 
-      // 2. Istanze nel range (per festival/other + training con overrides)
       const { data: instances, error: instError } = await supabase
         .from('event_instances')
         .select('id,event_id,instance_date,override_start_time,override_end_time,override_location,status')
@@ -122,15 +121,13 @@ export function useCalendarData(currentDate, view) {
       const instanceMap = {}
       ;(instances || []).forEach(i => { instanceMap[`${i.event_id}_${i.instance_date}`] = i })
 
-      // 3. Classi scuola nel range (per eventi school)
       const { data: schoolClasses, error: scError } = await supabase
         .from('school_class_instances')
         .select('*')
         .gte('instance_date', startStr)
         .lte('instance_date', endStr)
-      if (scError && scError.code !== '42P01') throw scError // ignora se tabella non esiste ancora
+      if (scError && scError.code !== '42P01') throw scError
 
-      // Raggruppa classi per event_id + instance_date
       const classByEventDate = {}
       ;(schoolClasses || []).filter(c => !c.removed).forEach(c => {
         const key = `${c.event_id}_${c.instance_date}`
@@ -138,12 +135,18 @@ export function useCalendarData(currentDate, view) {
         classByEventDate[key].push(c)
       })
 
-      // 4. Costruisci eventi da mostrare
+      // Carica assenze proprie nel range
+      const { data: absencesData } = profile?.id ? await supabase
+        .from('absences')
+        .select('*')
+        .eq('coach_id', profile.id)
+        .or(`and(date_from.lte.${endStr},date_to.gte.${startStr})`)
+        : { data: [] }
+
       const result = []
 
       for (const ev of (allEvents || [])) {
         if (ev.type === 'training') {
-          // Training: genera date ricorrenti
           const dates = generateRecurringDates(ev, rangeStart, rangeEnd)
           for (const dateStr of dates) {
             const inst = instanceMap[`${ev.id}_${dateStr}`]
@@ -162,10 +165,7 @@ export function useCalendarData(currentDate, view) {
               location: inst?.override_location || ev.location,
             })
           }
-
         } else if (ev.type === 'school') {
-          // School: un blocco per ogni gruppo di classi consecutive per data
-          // Trova tutte le date distinte che hanno classi per questo evento nel range
           const eventClasses = (schoolClasses || []).filter(c => c.event_id === ev.id && !c.removed)
           const dates = [...new Set(eventClasses.map(c => c.instance_date))].sort()
 
@@ -191,9 +191,7 @@ export function useCalendarData(currentDate, view) {
               })
             })
           }
-
         } else {
-          // Festival / other: istanza esplicita
           const inst = (instances || []).find(i => i.event_id === ev.id)
           if (!inst || inst.status === 'skipped') continue
           if (inst.instance_date < startStr || inst.instance_date > endStr) continue
@@ -211,7 +209,6 @@ export function useCalendarData(currentDate, view) {
         }
       }
 
-            // 5. Presenze per training/festival/other
       const instanceIds = result.map(e => e.instance_id).filter(Boolean)
       let attendancesData = []
       if (instanceIds.length > 0) {
@@ -223,7 +220,6 @@ export function useCalendarData(currentDate, view) {
         attendancesData = att || []
       }
 
-      // 5b. Presenze per scuole
       const schoolClassIds = schoolClasses?.map(c => c.id).filter(Boolean) || []
       if (schoolClassIds.length > 0) {
         const { data: schoolAtt, error: schoolAttError } = await supabase
@@ -236,16 +232,23 @@ export function useCalendarData(currentDate, view) {
 
       setEvents(result)
       setAttendances(attendancesData)
+      setAbsences(absencesData || [])
     } catch (err) {
       console.error('Errore nel fetch dei dati:', err)
       setEvents([])
       setAttendances([])
+      setAbsences([])
     } finally {
       setLoading(false)
     }
   }
 
-  return { events, attendances, loading, refetch: fetchData }
+  return { events, attendances, absences, loading, refetch: fetchData }
+}
+
+// Controlla se una data è coperta da almeno un'assenza
+export function isDateAbsent(absences, dateStr) {
+  return absences.some(a => a.date_from <= dateStr && a.date_to >= dateStr)
 }
 
 export function computeCoverage(slots, attendances) {
@@ -274,12 +277,15 @@ export function computeCoverage(slots, attendances) {
 
 export function getCovColor(coverage) {
   if (!coverage || Object.keys(coverage).length === 0) return 'orange'
-  let anyRed = false, anyOrange = false
-  for (const d of Object.values(coverage)) {
-    if (d.covered < d.min) anyRed = true
-    else if (d.jolly > 0 || d.covered === d.min) anyOrange = true
-  }
-  return anyRed ? 'red' : anyOrange ? 'orange' : 'green'
+  
+  const values = Object.values(coverage)
+  const totalCovered = values.reduce((sum, d) => sum + d.covered, 0)
+  const totalMin = values.reduce((sum, d) => sum + d.min, 0)
+  
+  if (totalCovered === 0) return 'red'
+  if (totalCovered > totalMin) return 'green'   // più persone del minimo totale
+  if (totalCovered === totalMin) return 'orange' // esattamente al minimo
+  return 'red'                                   // sotto il minimo
 }
 
 export { groupClasses }

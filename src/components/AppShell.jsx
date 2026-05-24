@@ -246,6 +246,53 @@ function ProfilePopup({ profile, onClose, onSignOut, onChangeUser, onProfileUpda
             ))}
           </div>
         </div>
+        
+        {/* Sezione da aggiungere nel ProfilePopup di AppShell.jsx
+        Incolla questo blocco DOPO il div del selettore tema e PRIMA del div delle azioni*/}
+
+        {/* ── CALENDARIO SYNC ── */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{ fontSize: 13, color: '#1a1a1a', marginBottom: 6, fontWeight: 500 }}>
+            📅 Sincronizza calendario
+          </div>
+          <p style={{ fontSize: 11, color: '#888', marginBottom: 10, lineHeight: 1.5 }}>
+            Aggiungi i tuoi eventi a Google, Apple o Outlook. Si aggiorna automaticamente quando dichiari una presenza.
+          </p>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/api/cal/${profile?.id}`
+                navigator.clipboard.writeText(url)
+                  .then(() => alert('✅ Link copiato!\n\nIncollalo in:\n• Google Calendar → Altri calendari → Da URL\n• Apple Calendario → File → Nuovo abbonamento\n• Outlook → Aggiungi calendario → Da Internet'))
+                  .catch(() => alert('URL feed:\n' + url))
+              }}
+              style={{
+                flex: 1, padding: '7px 10px', fontSize: 12, borderRadius: 7,
+                border: '1px solid #e5e5e5', background: '#f8f8f7',
+                color: '#1a1a1a', cursor: 'pointer',
+              }}
+            >
+              📋 Copia link
+            </button>
+            <a
+              href={`/api/cal/${profile?.id}`}
+              download={`scuola-ovale.ics`}
+              style={{
+                flex: 1, padding: '7px 10px', fontSize: 12, borderRadius: 7,
+                border: '1px solid #e5e5e5', background: '#f8f8f7',
+                color: '#1a1a1a', cursor: 'pointer', textAlign: 'center',
+                textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              ⬇️ .ics
+            </a>
+          </div>
+          <div style={{ fontSize: 10, color: '#bbb', lineHeight: 1.6 }}>
+            Google: Altri calendari → Da URL<br/>
+            Apple: File → Nuovo abbonamento calendario<br/>
+            Outlook: Aggiungi calendario → Da Internet
+          </div>
+        </div>
 
         {/* Azioni */}
         <div style={{ padding: '8px 8px' }}>
