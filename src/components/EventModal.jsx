@@ -4,7 +4,7 @@ import { it } from 'date-fns/locale'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
-import { computeCoverage } from '../hooks/useCalendarData'
+import { computeCoverage, getCovColor } from '../hooks/useCalendarData'
 
 /* ============================================================
    LIGHTBOX
@@ -112,7 +112,7 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
 
   const inner = (
     <div className="modal-box" style={{ display:'flex', flexDirection:'column', maxHeight:embedded?'65vh':'90vh', borderRadius:14, boxShadow:embedded?'none':'0 4px 24px rgba(0,0,0,0.14)', maxWidth:'100%' }}>
-      <div className="modal-head">
+      <div className="modal-head" style={{ paddingBottom: 10, marginBottom: 0}}>
         <div style={{ flex:1 }}>
           <div className="modal-title">{typeIcon[event.eventType]||'📅'} {event.title}{event.eventType==='school'&&' ★'}</div>
           <div className="modal-sub">{subtitle}</div>
@@ -121,6 +121,15 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
         </div>
         <button className="modal-close" onClick={onClose}>✕</button>
       </div>
+
+      {/* Barra copertura in fondo all'header */}
+      {(() => {
+        if (event.eventType === 'school' || !event.slots?.length) return null
+        const coverage = computeCoverage(event.slots, attendances)
+        const color = getCovColor(coverage)
+        const barColor = color === 'green' ? '#2e7d4f' : color === 'orange' ? '#b8610a' : '#b91c1c'
+        return <div style={{ height: 4, background: barColor, display: 'block', marginTop: 0 }} />
+      })()}
 
       <div className="modal-body" style={{ flex:1, overflowY:'auto' }}>
         {view === 'main' && (

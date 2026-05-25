@@ -155,11 +155,28 @@ export default function CalendarPage() {
   function goToCurrentWeek() { setCurrentDate(TODAY) }
 
   function periodLabel() {
-    if (view === 'week') {
-      const days = getWeekDays(currentDate)
-      return `${format(days[0], 'd MMM', { locale: it })} – ${format(days[6], 'd MMM yyyy', { locale: it })}`
+    if (view === 'month') {
+      return format(currentDate, 'MMMM yyyy', { locale: it })
     }
-    return format(currentDate, 'MMMM yyyy', { locale: it })
+    const days = getWeekDays(currentDate)
+    const first = days[0], last = days[6]
+    const sameMonth = first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear()
+
+    const full = `${format(first, 'd MMM', { locale: it })} – ${format(last, 'd MMM yyyy', { locale: it })}`
+    const noYear = sameMonth
+      ? `${format(first, 'd', { locale: it })} – ${format(last, 'd MMM', { locale: it })}`
+      : `${format(first, 'd MMM', { locale: it })} – ${format(last, 'd MMM', { locale: it })}`
+    const compact = sameMonth
+      ? `${format(first, 'd', { locale: it })} – ${format(last, 'd MMM', { locale: it })}`
+      : `${format(first, 'd MMM', { locale: it })} – ${format(last, 'd MMM', { locale: it })}`
+
+    return (
+      <span>
+        <span className="date-full">{full}</span>
+        <span className="date-no-year">{noYear}</span>
+        <span className="date-compact">{compact}</span>
+      </span>
+    )
   }
 
   function getEventsForDay(date) {
@@ -185,44 +202,50 @@ export default function CalendarPage() {
   return (
     <div>
       {/* Header navigazione */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate(-1)}>↑</button>
-          <span style={{ fontSize: 13, fontWeight: 500, minWidth: 170, textAlign: 'center', color: '#1a1a1a' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 6 }}>
+  
+          {/* Navigazione */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => navigate(-1)}>↑</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => navigate(1)}>↓</button>
+            {!isCurrentWeek && view === 'week' && (
+              <button className="btn btn-secondary btn-sm" onClick={goToCurrentWeek} style={{ fontSize: 11 }}>
+                Oggi
+              </button>
+            )}
+          </div>
+
+          {/* Data — prende lo spazio disponibile */}
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#1a1a1a', textAlign: 'center', flex: 1, minWidth: 0 }}>
             {periodLabel()}
           </span>
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate(1)}>↓</button>
-          {!isCurrentWeek && view === 'week' && (
-            <button className="btn btn-secondary btn-sm" onClick={goToCurrentWeek} style={{ fontSize: 11 }}>Oggi</button>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* Bottone assenza periodo */}
-          <button
-            onClick={() => setShowAbsenceModal(true)}
-            title="Dichiara periodo di assenza"
-            style={{
-              padding: '5px 10px', fontSize: 12, borderRadius: 7, cursor: 'pointer',
-              background: '#fff5f5', border: '1px solid #fecaca',
-              color: '#b91c1c', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4,
-            }}>
-            🚫 Assenza
-          </button>
-          {/* Toggle week/month */}
-          <div style={{ display: 'flex', gap: 4, background: '#f0f0ee', borderRadius: 8, padding: 3 }}>
-            {['week', 'month'].map(v => (
-              <button key={v} onClick={() => { setView(v); if (v === 'week') setCurrentDate(TODAY) }} style={{
-                padding: '4px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
-                background: view === v ? '#fff' : 'transparent',
-                fontWeight: view === v ? 600 : 400,
-                color: view === v ? '#1a1a1a' : '#888',
-                border: view === v ? '1px solid #e5e5e5' : 'none',
+
+          {/* Azioni destra */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <button
+              onClick={() => setShowAbsenceModal(true)}
+              title="Dichiara periodo di assenza"
+              style={{
+                padding: '5px 8px', fontSize: 14, borderRadius: 7, cursor: 'pointer',
+                background: '#fff5f5', border: '1px solid #fecaca',
+                color: '#b91c1c', lineHeight: 1,
               }}>
-                {v === 'week' ? 'Settimana' : 'Mese'}
-              </button>
-            ))}
+              🚫
+            </button>
+            <div style={{ display: 'flex', gap: 4, background: '#f0f0ee', borderRadius: 8, padding: 3 }}>
+              {['week', 'month'].map(v => (
+                <button key={v} onClick={() => { setView(v); if (v === 'week') setCurrentDate(TODAY) }} style={{
+                  padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                  background: view === v ? '#fff' : 'transparent',
+                  fontWeight: view === v ? 600 : 400,
+                  color: view === v ? '#1a1a1a' : '#888',
+                  border: view === v ? '1px solid #e5e5e5' : 'none',
+                }}>
+                  {v === 'week' ? 'Sett.' : 'Mese'}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
       </div>
 
       {view === 'week'
@@ -327,7 +350,7 @@ function WeekView({ currentDate, getEventsForDay, onEventClick, getWeekDays, att
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: isToday ? 'rgba(255,255,255,0.65)' : '#aaa' }}>{dayName}</div>
                   <div style={{ fontSize: 20, fontWeight: 500, lineHeight: 1.1, color: isToday ? '#fff' : isPast ? '#bbb' : '#1a1a1a' }}>{dayNum}</div>
                   <div style={{ fontSize: 10, color: isToday ? 'rgba(255,255,255,0.5)' : '#ccc' }}>{monthName}</div>
-                  {isToday && <div style={{ marginTop: 4, fontSize: 9, background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 4, padding: '1px 4px', textAlign: 'center' }}>oggi</div>}
+                  {/* {isToday && <div style={{ marginTop: 4, fontSize: 9, background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 4, padding: '1px 4px', textAlign: 'center' }}>oggi</div>} */}
 
                 </div>
 

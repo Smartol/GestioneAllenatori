@@ -331,3 +331,22 @@ input, select, textarea { font-family: inherit; }
 }
 .tab-btn:hover { color: #1a1a1a; }
 .tab-btn.active { color: #1a1a1a; border-bottom-color: #1a1a1a; font-weight: 700; }
+
+/* ============================================================
+   DATE
+   ============================================================ */
+.date-full    { display: inline; }
+.date-no-year { display: none; }
+.date-compact { display: none; }
+
+@media (max-width: 420px) {
+  .date-full    { display: none; }
+  .date-no-year { display: inline; }
+  .date-compact { display: none; }
+}
+
+@media (max-width: 340px) {
+  .date-full    { display: none; }
+  .date-no-year { display: none; }
+  .date-compact { display: inline; }
+}

@@ -4,6 +4,9 @@ import { it } from 'date-fns/locale'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 
+/* ============================================================
+   LIGHTBOX
+   ============================================================ */
 function Lightbox({ images, startIndex = 0, caption, onClose }) {
   const [idx, setIdx] = useState(startIndex)
   const total = images.length
@@ -37,6 +40,86 @@ function Lightbox({ images, startIndex = 0, caption, onClose }) {
   )
 }
 
+/* ============================================================
+   ABSENCE MODAL — aggiunta e modifica
+   ============================================================ */
+function AbsenceModal({ absence, onClose, onSaved }) {
+  const { profile } = useAuth()
+  const [dateFrom, setDateFrom] = useState(absence?.date_from || '')
+  const [dateTo, setDateTo] = useState(absence?.date_to || '')
+  const [note, setNote] = useState(absence?.note || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const today = new Date().toISOString().slice(0, 10)
+
+  async function save() {
+    if (!dateFrom || !dateTo) { setError('Seleziona entrambe le date.'); return }
+    if (dateTo < dateFrom) { setError('La data di fine deve essere dopo quella di inizio.'); return }
+    setError(''); setSaving(true)
+    if (absence) {
+      await supabase.from('absences')
+        .update({ date_from: dateFrom, date_to: dateTo, note: note.trim() || null })
+        .eq('id', absence.id)
+    } else {
+      await supabase.from('absences').insert({
+        coach_id: profile.id,
+        date_from: dateFrom,
+        date_to: dateTo,
+        absence_type: 'period',
+        note: note.trim() || null,
+      })
+    }
+    setSaving(false)
+    onSaved()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 360 }}>
+        <div className="modal-head" style={{ background: '#b91c1c' }}>
+          <div className="modal-title">{absence ? '✏️ Modifica assenza' : '🚫 Nuova assenza'}</div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ background:'#fef3c7', border:'1px solid #fde68a', borderRadius:8, padding:'10px 12px', fontSize:12, color:'#92400e', marginBottom:16, lineHeight:1.5 }}>
+            ℹ️ Usa questa funzione solo per giorni in cui non sei disponibile completamente.
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+            <div className="field" style={{ margin:0 }}>
+              <label>Dal</label>
+              <input type="date" value={dateFrom} min={today}
+                onChange={e => { setDateFrom(e.target.value); setError('') }} />
+            </div>
+            <div className="field" style={{ margin:0 }}>
+              <label>Al</label>
+              <input type="date" value={dateTo} min={dateFrom || today}
+                onChange={e => { setDateTo(e.target.value); setError('') }} />
+            </div>
+          </div>
+          <div className="field">
+            <label>Nota (opzionale)</label>
+            <input value={note} onChange={e => setNote(e.target.value)}
+              placeholder="es. Vacanze, trasferta lavorativa..." />
+          </div>
+          {error && <p style={{ fontSize:12, color:'#b91c1c', marginBottom:8 }}>{error}</p>}
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={save} disabled={!dateFrom || !dateTo || saving}
+              style={{ flex:2, padding:'10px', borderRadius:8, border:'none', fontSize:13, fontWeight:600, cursor:(!dateFrom||!dateTo)?'default':'pointer', background:(!dateFrom||!dateTo)?'#e5e5e5':'#b91c1c', color:(!dateFrom||!dateTo)?'#aaa':'#fff' }}>
+              {saving ? 'Salvataggio...' : absence ? 'Salva modifiche' : 'Aggiungi assenza'}
+            </button>
+            <button onClick={onClose} style={{ flex:1, padding:'10px', borderRadius:8, border:'1px solid #ddd', background:'#fff', fontSize:13, color:'#555', cursor:'pointer' }}>
+              Annulla
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================================================
+   BACHECA PAGE
+   ============================================================ */
 export default function BachecaPage() {
   const { profile, isAdmin } = useAuth()
   const [posts, setPosts] = useState([])
@@ -48,10 +131,10 @@ export default function BachecaPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingPost, setEditingPost] = useState(null)
 
-  // Assenze periodiche
   const [absences, setAbsences] = useState([])
   const [absencesOpen, setAbsencesOpen] = useState(false)
   const [absencesLoading, setAbsencesLoading] = useState(false)
+  const [absenceModal, setAbsenceModal] = useState(null) // null | 'new' | absence_obj
 
   const fileInputRef = useRef()
   const canPost = isAdmin || profile?.role === 'coach'
@@ -100,11 +183,9 @@ export default function BachecaPage() {
   }
 
   function resetForm() {
-    setContent('')
-    setImages([])
+    setContent(''); setImages([])
     setPreviews(p => { p.forEach(u => URL.revokeObjectURL(u)); return [] })
-    setShowForm(false)
-    setEditingPost(null)
+    setShowForm(false); setEditingPost(null)
   }
 
   async function savePost() {
@@ -119,7 +200,8 @@ export default function BachecaPage() {
         if (!error) await supabase.from('board_post_images').insert({ post_id: editingPost.id, storage_path: path })
       }
     } else {
-      const { data: post, error } = await supabase.from('board_posts').insert({ author_id: profile.id, content: content.trim() || null }).select().single()
+      const { data: post, error } = await supabase.from('board_posts')
+        .insert({ author_id: profile.id, content: content.trim() || null }).select().single()
       if (error) { setSaving(false); return }
       for (const file of images) {
         const ext = file.name.split('.').pop()
@@ -159,7 +241,7 @@ export default function BachecaPage() {
 
   function formatDate(ts) {
     const d = new Date(ts)
-    return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleDateString('it-IT', { day:'2-digit', month:'short', year:'numeric' }) + ' ' + d.toLocaleTimeString('it-IT', { hour:'2-digit', minute:'2-digit' })
   }
 
   function formatAbsenceDate(dateStr) {
@@ -171,80 +253,85 @@ export default function BachecaPage() {
 
   return (
     <>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-      <div style={{ fontSize: 18, fontWeight: 600 }}>📌 Bacheca</div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button
-          onClick={() => setAbsencesOpen(o => !o)}
-          style={{
-            fontSize: 11, padding: '4px 10px', borderRadius: 6,
-            border: '1px solid #fecaca', background: absencesOpen ? '#fecaca' : '#fff5f5',
-            color: '#b91c1c', cursor: 'pointer', fontWeight: 500,
-          }}
-        >
-          🚫 Assenze
-        </button>
-        {canPost && !showForm && (
-          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>+ Nuovo post</button>
-        )}
-      </div>
-    </div>
+      {/* Modal assenza */}
+      {absenceModal !== null && (
+        <AbsenceModal
+          absence={absenceModal === 'new' ? null : absenceModal}
+          onClose={() => setAbsenceModal(null)}
+          onSaved={() => { setAbsenceModal(null); loadAbsences() }}
+        />
+      )}
 
-    {absencesOpen && (
-      <div className="card" style={{ marginBottom: 16 }}>
-        {absencesLoading ? (
-          <p style={{ fontSize: 12, color: '#aaa', textAlign: 'center' }}>Caricamento...</p>
-        ) : absences.length === 0 ? (
-          <p style={{ fontSize: 12, color: '#aaa', textAlign: 'center' }}>Nessuna assenza dichiarata.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {absences.map(ab => {
-              const isMine = ab.coach_id === profile?.id
-              return (
-                <div key={ab.id} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '8px 12px', borderRadius: 8, gap: 10,
-                  background: isMine ? '#fff5f5' : '#fafafa',
-                  border: `1px solid ${isMine ? '#fecaca' : '#e5e5e5'}`,
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#b91c1c' }}>
-                      {ab.coach?.full_name}
-                    </span>
-                    <span style={{ fontSize: 12, color: '#555', marginLeft: 8 }}>
-                      {ab.date_from === ab.date_to
-                        ? formatAbsenceDate(ab.date_from)
-                        : `${formatAbsenceDate(ab.date_from)} → ${formatAbsenceDate(ab.date_to)}`
-                      }
-                    </span>
-                    {ab.note && (
-                      <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>— {ab.note}</span>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+        <div style={{ fontSize:18, fontWeight:600 }}>📌 Bacheca</div>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <button
+            onClick={() => setAbsencesOpen(o => !o)}
+            style={{ fontSize:11, padding:'4px 10px', borderRadius:6, border:'1px solid #fecaca', background:absencesOpen?'#fecaca':'#fff5f5', color:'#b91c1c', cursor:'pointer', fontWeight:500 }}
+          >
+            🚫 Assenze{absences.length > 0 ? ` (${absences.length})` : ''}
+          </button>
+          {canPost && !showForm && (
+            <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>+ Nuovo post</button>
+          )}
+        </div>
+      </div>
+
+      {/* Pannello assenze */}
+      {absencesOpen && (
+        <div className="card" style={{ marginBottom:16 }}>
+          {absencesLoading ? (
+            <p style={{ fontSize:12, color:'#aaa', textAlign:'center' }}>Caricamento...</p>
+          ) : absences.length === 0 ? (
+            <p style={{ fontSize:12, color:'#aaa', textAlign:'center', marginBottom:12 }}>Nessuna assenza dichiarata.</p>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:12 }}>
+              {absences.map(ab => {
+                const isMine = ab.coach_id === profile?.id
+                return (
+                  <div key={ab.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', borderRadius:8, gap:10, background:isMine?'#fff5f5':'#fafafa', border:`1px solid ${isMine?'#fecaca':'#e5e5e5'}` }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <span style={{ fontSize:12, fontWeight:600, color:'#b91c1c' }}>{ab.coach?.full_name}</span>
+                      <span style={{ fontSize:12, color:'#555', marginLeft:8 }}>
+                        {ab.date_from === ab.date_to
+                          ? formatAbsenceDate(ab.date_from)
+                          : `${formatAbsenceDate(ab.date_from)} → ${formatAbsenceDate(ab.date_to)}`
+                        }
+                      </span>
+                      {ab.note && <span style={{ fontSize:11, color:'#888', marginLeft:8 }}>— {ab.note}</span>}
+                    </div>
+                    {isMine && (
+                      <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                        <button
+                          onClick={() => setAbsenceModal(ab)}
+                          style={{ fontSize:11, padding:'3px 8px', borderRadius:5, border:'1px solid #e5e5e5', background:'#f8f8f7', color:'#555', cursor:'pointer' }}>
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => deleteAbsence(ab.id)}
+                          style={{ fontSize:11, padding:'3px 8px', borderRadius:5, border:'1px solid #fecaca', background:'#fff', color:'#b91c1c', cursor:'pointer' }}>
+                          Elimina
+                        </button>
+                      </div>
                     )}
                   </div>
-                  {isMine && (
-                    <button
-                      onClick={() => deleteAbsence(ab.id)}
-                      style={{
-                        fontSize: 11, padding: '3px 8px', borderRadius: 5,
-                        border: '1px solid #fecaca', background: '#fff',
-                        color: '#b91c1c', cursor: 'pointer', flexShrink: 0,
-                      }}
-                    >
-                      Elimina
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    )}
-
+                )
+              })}
+            </div>
+          )}
+          {/* Bottone aggiungi in fondo */}
+          <button
+            onClick={() => setAbsenceModal('new')}
+            style={{ width:'100%', padding:'8px', borderRadius:8, border:'1px dashed #fecaca', background:'#fff5f5', color:'#b91c1c', fontSize:12, fontWeight:500, cursor:'pointer' }}>
+            + Aggiungi assenza
+          </button>
+        </div>
+      )}
 
       {/* Form post */}
       {showForm && canPost && (
-        <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card" style={{ marginBottom:20 }}>
           <div style={{ fontWeight:500, marginBottom:12 }}>{editingPost ? 'Modifica post' : 'Nuovo post'}</div>
           <div className="field">
             <label>Testo (opzionale se aggiungi immagini)</label>
@@ -299,6 +386,9 @@ export default function BachecaPage() {
   )
 }
 
+/* ============================================================
+   POST CARD
+   ============================================================ */
 function PostCard({ post, canEdit, onEdit, onDelete, getImageUrl, formatDate, roleLabel, roleBadgeClass }) {
   const [lightbox, setLightbox] = useState(null)
   const imageUrls = (post.board_post_images || []).map(img => getImageUrl(img.storage_path)).filter(Boolean)
