@@ -159,14 +159,40 @@ export default function BachecaPage() {
       .select('*, coach:profiles(id, full_name)')
       .eq('absence_type', 'period')
       .gte('date_to', today)
+      .order('coach_id')
       .order('date_from')
-    setAbsences(data || [])
+
+    // Raggruppa giorni consecutivi dello stesso utente in periodi
+    const grouped = []
+    for (const ab of (data || [])) {
+      const last = grouped[grouped.length - 1]
+      if (
+        last &&
+        last.coach_id === ab.coach_id &&
+        last.note === ab.note &&
+        addOneDayStr(last.date_to) === ab.date_from
+      ) {
+        // Estendi il periodo
+        last.date_to = ab.date_to
+        last._ids.push(ab.id)
+      } else {
+        grouped.push({ ...ab, _ids: [ab.id] })
+      }
+    }
+    setAbsences(grouped)
     setAbsencesLoading(false)
   }
 
-  async function deleteAbsence(id) {
+  function addOneDayStr(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number)
+    const dt = new Date(y, m-1, d+1)
+    return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`
+  }
+
+  async function deleteAbsence(ab) {
     if (!window.confirm('Eliminare questo periodo di assenza?')) return
-    await supabase.from('absences').delete().eq('id', id)
+    const ids = ab._ids || [ab.id]
+    for (const id of ids) await supabase.from('absences').delete().eq('id', id)
     loadAbsences()
   }
 

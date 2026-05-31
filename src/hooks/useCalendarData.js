@@ -62,9 +62,9 @@ function groupClasses(classes, pauseMinutes = 15) {
     if (current.length === 0) {
       current.push(cls)
     } else {
-      const last     = current[current.length - 1]
-      const lastMin  = toMin(last.start_time)
-      const thisMin  = toMin(cls.start_time)
+      const last    = current[current.length - 1]
+      const lastMin = toMin(last.start_time)
+      const thisMin = toMin(cls.start_time)
       if (lastMin === null || thisMin === null || (thisMin - lastMin) <= pauseMinutes) {
         current.push(cls)
       } else {
@@ -81,7 +81,7 @@ export function useCalendarData(currentDate, view) {
   const { profile } = useAuth()
   const [events, setEvents] = useState([])
   const [attendances, setAttendances] = useState([])
-  const [absences, setAbsences] = useState([]) // assenze proprie
+  const [absences, setAbsences] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { fetchData() }, [currentDate, view])
@@ -135,7 +135,7 @@ export function useCalendarData(currentDate, view) {
         classByEventDate[key].push(c)
       })
 
-      // Carica assenze proprie nel range
+      // Carica assenze proprie nel range (sia 'event' che 'period')
       const { data: absencesData } = profile?.id ? await supabase
         .from('absences')
         .select('*')
@@ -230,7 +230,55 @@ export function useCalendarData(currentDate, view) {
         attendancesData = [...attendancesData, ...(schoolAtt || [])]
       }
 
-      setEvents(result)
+      // Calcola myStatus per ogni evento
+      // 'present' = ho una presenza, 'absent' = ho un'assenza, null = nessuna indicazione
+      const myId = profile?.id
+      const resultWithStatus = result.map(ev => {
+        let myStatus = null
+
+        if (myId) {
+          // Controlla assenza per singolo evento
+          const hasEventAbsence = (absencesData || []).some(a =>
+            a.coach_id === myId &&
+            a.absence_type === 'event' &&
+            a.event_id === ev.id &&
+            a.instance_date === ev.dateStr
+          )
+          // Controlla assenza per periodo
+          const hasPeriodAbsence = (absencesData || []).some(a =>
+            a.coach_id === myId &&
+            a.absence_type === 'period' &&
+            a.date_from <= ev.dateStr &&
+            a.date_to >= ev.dateStr
+          )
+
+          if (hasEventAbsence || hasPeriodAbsence) {
+            myStatus = 'absent'
+          } else {
+            // Controlla presenza
+            if (ev.eventType === 'school') {
+              const classIds = new Set((ev.classBlock || []).map(c => c.id))
+              const hasPresence = attendancesData.some(a =>
+                a.coach_id === myId &&
+                a.school_class_instance_id &&
+                classIds.has(a.school_class_instance_id)
+              )
+              if (hasPresence) myStatus = 'present'
+            } else if (ev.instance_id) {
+              const hasPresence = attendancesData.some(a =>
+                a.coach_id === myId &&
+                a.instance_id === ev.instance_id &&
+                !a.school_class_instance_id
+              )
+              if (hasPresence) myStatus = 'present'
+            }
+          }
+        }
+
+        return { ...ev, myStatus }
+      })
+
+      setEvents(resultWithStatus)
       setAttendances(attendancesData)
       setAbsences(absencesData || [])
     } catch (err) {
@@ -246,9 +294,53 @@ export function useCalendarData(currentDate, view) {
   return { events, attendances, absences, loading, refetch: fetchData }
 }
 
-// Controlla se una data è coperta da almeno un'assenza
+// Controlla se una data è coperta da almeno un'assenza periodica
 export function isDateAbsent(absences, dateStr) {
-  return absences.some(a => a.date_from <= dateStr && a.date_to >= dateStr)
+  return absences.some(a =>
+    a.absence_type === 'period' &&
+    a.date_from <= dateStr &&
+    a.date_to >= dateStr
+  )
+}
+
+// Restituisce 'present' | 'absent' | null per un evento specifico
+export function getMyEventStatus(absences, attendances, ev, myId) {
+  if (!myId) return null
+
+  const hasEventAbsence = (absences || []).some(a =>
+    a.coach_id === myId &&
+    a.absence_type === 'event' &&
+    a.event_id === ev.id &&
+    a.instance_date === ev.dateStr
+  )
+  const hasPeriodAbsence = (absences || []).some(a =>
+    a.coach_id === myId &&
+    a.absence_type === 'period' &&
+    a.date_from <= ev.dateStr &&
+    a.date_to >= ev.dateStr
+  )
+  if (hasEventAbsence || hasPeriodAbsence) return 'absent'
+
+  if (ev.eventType === 'school') {
+    const classIds = new Set((ev.classBlock || []).map(c => c.id))
+    const hasPresence = (attendances || []).some(a =>
+      a.coach_id === myId &&
+      a.school_class_instance_id &&
+      classIds.has(a.school_class_instance_id)
+    )
+    return hasPresence ? 'present' : null
+  }
+
+  if (ev.instance_id) {
+    const hasPresence = (attendances || []).some(a =>
+      a.coach_id === myId &&
+      a.instance_id === ev.instance_id &&
+      !a.school_class_instance_id
+    )
+    return hasPresence ? 'present' : null
+  }
+
+  return null
 }
 
 export function computeCoverage(slots, attendances) {
@@ -277,15 +369,26 @@ export function computeCoverage(slots, attendances) {
 
 export function getCovColor(coverage) {
   if (!coverage || Object.keys(coverage).length === 0) return 'orange'
-  
   const values = Object.values(coverage)
   const totalCovered = values.reduce((sum, d) => sum + d.covered, 0)
   const totalMin = values.reduce((sum, d) => sum + d.min, 0)
-  
-  if (totalCovered === 0) return 'red'
-  if (totalCovered > totalMin) return 'green'   // più persone del minimo totale
-  if (totalCovered === totalMin) return 'orange' // esattamente al minimo
-  return 'red'                                   // sotto il minimo
+  if (totalCovered === 0 || totalCovered <= totalMin - 2) return 'red'
+  if (totalCovered === totalMin - 1) return 'orange'
+  return 'green'
+}
+
+export function getSchoolCovColor(classBlock, attendances) {
+  if (!classBlock?.length) return 'orange'
+  let worst = 'green'
+  for (const cls of classBlock) {
+    const present = (attendances || []).filter(a =>
+      a.school_class_instance_id === cls.id || a.is_jolly
+    ).length
+    const min = cls.min_coaches || 2
+    if (present === 0 || present <= min - 2) return 'red'
+    if (present === min - 1 && worst !== 'red') worst = 'orange'
+  }
+  return worst
 }
 
 export { groupClasses }

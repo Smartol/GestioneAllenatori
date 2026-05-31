@@ -76,23 +76,26 @@ function slotLabel(a, event) {
   return '—'
 }
 
+function addWeeksLocal(dateStr, weeks) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + weeks * 7)
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`
+}
+
 /* ============================================================
-   EVENT MODAL — stato assenze sollevato qui
+   EVENT MODAL
    ============================================================ */
 export default function EventModal({ event, attendances, onClose, onRefetch, onDelete, embedded }) {
   const { profile, isAdmin } = useAuth()
   const [view, setView] = useState('main')
-
-  // ── ASSENZE: stato centralizzato ──
-  const [eventAbsences, setEventAbsences] = useState([])  // tutte le assenze per questo evento
-  const [myAbsence, setMyAbsence] = useState(null)        // mia assenza per questo evento
+  const [eventAbsences, setEventAbsences] = useState([])
+  const [myAbsence, setMyAbsence] = useState(null)
 
   const loadAbsences = useCallback(async () => {
     const { data, error } = await supabase
       .from('absences')
       .select('*, coach:profiles(id,full_name)')
       .or(`and(absence_type.eq.event,event_id.eq.${event.id},instance_date.eq.${event.dateStr}),and(absence_type.eq.period,date_from.lte.${event.dateStr},date_to.gte.${event.dateStr})`)
-
     console.log('absences loaded:', data, error)
     setEventAbsences(data || [])
     const mine = (data || []).find(a => a.coach_id === profile?.id) || null
@@ -112,7 +115,7 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
 
   const inner = (
     <div className="modal-box" style={{ display:'flex', flexDirection:'column', maxHeight:embedded?'65vh':'90vh', borderRadius:14, boxShadow:embedded?'none':'0 4px 24px rgba(0,0,0,0.14)', maxWidth:'100%' }}>
-      <div className="modal-head" style={{ paddingBottom: 10, marginBottom: 0}}>
+      <div className="modal-head" style={{ paddingBottom:10, marginBottom:0 }}>
         <div style={{ flex:1 }}>
           <div className="modal-title">{typeIcon[event.eventType]||'📅'} {event.title}{event.eventType==='school'&&' ★'}</div>
           <div className="modal-sub">{subtitle}</div>
@@ -122,24 +125,37 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
         <button className="modal-close" onClick={onClose}>✕</button>
       </div>
 
-      {/* Barra copertura in fondo all'header */}
+      {/* Barra copertura */}
       {(() => {
-        if (event.eventType === 'school' || !event.slots?.length) return null
-        const coverage = computeCoverage(event.slots, attendances)
-        const color = getCovColor(coverage)
-        const barColor = color === 'green' ? '#2e7d4f' : color === 'orange' ? '#b8610a' : '#b91c1c'
-        return <div style={{ height: 4, background: barColor, display: 'block', marginTop: 0 }} />
+        let color = null
+        if (event.eventType === 'school') {
+          const classes = event.allClassesForDate || event.classBlock || []
+          if (!classes.length) return null
+          let worst = 'green'
+          for (const cls of classes) {
+            const present = attendances.filter(a => a.school_class_instance_id === cls.id || a.is_jolly).length
+            const min = cls.min_coaches || 2
+            const diff = present - min
+            if (diff <= -2) { worst = 'red'; break }
+            else if (diff === -1 && worst !== 'red') worst = 'orange'
+          }
+          color = worst
+        } else {
+          if (!event.slots?.length) return null
+          const coverage = computeCoverage(event.slots, attendances)
+          color = getCovColor(coverage)
+        }
+        const barColor = color === 'green' ? '#2e7d4f' : color === 'orange' ? '#cea21c' : '#b91c1c'
+        return <div style={{ height:4, background:barColor }} />
       })()}
 
       <div className="modal-body" style={{ flex:1, overflowY:'auto' }}>
         {view === 'main' && (
-          <MainBody
-            event={event} attendances={attendances}
+          <MainBody event={event} attendances={attendances}
             myAttendances={myAttendances} isSigned={isSigned}
             profile={profile} isAdmin={isAdmin}
             eventAbsences={eventAbsences}
-            onSetView={setView} onRefetch={onRefetch}
-          />
+            onSetView={setView} onRefetch={onRefetch} />
         )}
         {view === 'note-form' && <NoteForm event={event} profile={profile} onDone={() => { onRefetch(); setView('main') }} onCancel={() => setView('main')} />}
         {view === 'edit-choice' && <EditChoiceView event={event} onEditInstance={() => setView('edit-instance')} onCancel={() => setView('main')} />}
@@ -150,11 +166,8 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
         <PresenceFooter
           event={event} profile={profile}
           attendances={attendances} myAttendances={myAttendances}
-          isSigned={isSigned}
-          myAbsence={myAbsence}
-          onAbsenceChange={loadAbsences}
-          onRefetch={onRefetch}
-        />
+          isSigned={isSigned} myAbsence={myAbsence}
+          onAbsenceChange={loadAbsences} onRefetch={onRefetch} />
       )}
     </div>
   )
@@ -168,7 +181,6 @@ export default function EventModal({ event, attendances, onClose, onRefetch, onD
    ============================================================ */
 function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmin, eventAbsences, onSetView, onRefetch }) {
   const [notes, setNotes] = useState(null)
-  const [notesOpen, setNotesOpen] = useState(false)
   const [notesLoading, setNotesLoading] = useState(false)
   const [editingNote, setEditingNote] = useState(null)
   const [presOpen, setPresOpen] = useState(false)
@@ -197,7 +209,6 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
 
   return (
     <>
-      {/* COPERTURA */}
       {Object.keys(coverage).length > 0 && (
         <div className="modal-section">
           <div className="modal-section-title">Copertura</div>
@@ -213,21 +224,13 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
         </div>
       )}
 
-      {/* CLASSI SCUOLA */}
       {event.eventType === 'school' && <SchoolProgramme event={event} attendances={attendances} profile={profile} />}
 
-      {/* ── DUE COLONNE: PRESENZE + ASSENZE ── */}
+      {/* DUE COLONNE */}
       <div className="modal-section">
         <div style={{ display:'flex', gap:6 }}>
-
-          {/* PRESENZE — colonna più larga (60%) */}
           <div style={{ flex:'0 0 60%', minWidth:0 }}>
-            <button onClick={() => setPresOpen(o => !o)} style={{
-              width:'100%', padding:'7px 10px', background:'#f0fdf4', border:'1px solid #bbf7d0',
-              borderRadius: presOpen ? '8px 8px 0 0' : '8px',
-              fontSize:12, fontWeight:600, color:'#15803d', cursor:'pointer',
-              display:'flex', alignItems:'center', justifyContent:'space-between',
-            }}>
+            <button onClick={() => setPresOpen(o => !o)} style={{ width:'100%', padding:'7px 10px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:presOpen?'8px 8px 0 0':'8px', fontSize:12, fontWeight:600, color:'#15803d', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <span>✓ Presenti ({attendances.length})</span>
               <span style={{ fontSize:11 }}>{presOpen ? '▴' : '▾'}</span>
             </button>
@@ -237,8 +240,8 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
                   ? <p style={{ fontSize:11, color:'#aaa' }}>Nessuno.</p>
                   : attendances.map(a => (
                     <div key={a.id} style={{ fontSize:11, padding:'3px 0', borderBottom:'1px solid #dcfce7', display:'flex', justifyContent:'space-between', alignItems:'center', gap:4 }}>
-                      <span style={{ fontWeight: a.coach_id===profile?.id ? 700 : 500, color: a.coach_id===profile?.id ? '#15803d' : '#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        {a.coach_id===profile?.id ? '✓ ' : ''}{a.coach?.full_name}
+                      <span style={{ fontWeight:a.coach_id===profile?.id?700:500, color:a.coach_id===profile?.id?'#15803d':'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {a.coach_id===profile?.id?'✓ ':''}{a.coach?.full_name}
                       </span>
                       <span style={{ fontSize:10, color:'#888', flexShrink:0 }}>{slotLabel(a, event)}</span>
                     </div>
@@ -247,15 +250,8 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
               </div>
             )}
           </div>
-
-          {/* ASSENZE — colonna più stretta (40%) */}
           <div style={{ flex:'0 0 calc(40% - 6px)', minWidth:0 }}>
-            <button onClick={() => setAbsOpen(o => !o)} style={{
-              width:'100%', padding:'7px 10px', background:'#fff5f5', border:'1px solid #fecaca',
-              borderRadius: absOpen ? '8px 8px 0 0' : '8px',
-              fontSize:12, fontWeight:600, color:'#b91c1c', cursor:'pointer',
-              display:'flex', alignItems:'center', justifyContent:'space-between',
-            }}>
+            <button onClick={() => setAbsOpen(o => !o)} style={{ width:'100%', padding:'7px 10px', background:'#fff5f5', border:'1px solid #fecaca', borderRadius:absOpen?'8px 8px 0 0':'8px', fontSize:12, fontWeight:600, color:'#b91c1c', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <span>🚫 Assenti ({eventAbsences.length})</span>
               <span style={{ fontSize:11 }}>{absOpen ? '▴' : '▾'}</span>
             </button>
@@ -273,18 +269,14 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
               </div>
             )}
           </div>
-
         </div>
       </div>
 
-      {/* NOTE */}
       <NotesSection notes={notes} notesLoading={notesLoading}
-        notesOpen={notesOpen} setNotesOpen={() => {}}
         profile={profile} isAdmin={isAdmin}
         onAddNote={() => onSetView('note-form')}
         onEditNote={note => setEditingNote(note)}
-        onDeleteNote={deleteNote}
-        onRefetch={loadNotes} />
+        onDeleteNote={deleteNote} />
       {editingNote && (
         <NoteForm event={event} profile={profile} editingNote={editingNote}
           onDone={() => { setEditingNote(null); loadNotes() }}
@@ -300,9 +292,7 @@ function MainBody({ event, attendances, myAttendances, isSigned, profile, isAdmi
   )
 }
 
-/* ---- NotesSection usata in MainBody ---- */
-// (dichiarata separatamente sotto per pulizia)
-function NotesSection({ notes, notesLoading, notesOpen: _open, setNotesOpen, profile, isAdmin, onAddNote, onEditNote, onDeleteNote }) {
+function NotesSection({ notes, notesLoading, profile, isAdmin, onAddNote, onEditNote, onDeleteNote }) {
   const [open, setOpen] = useState(false)
   const noteCount = notes?.length ?? '…'
   return (
@@ -495,6 +485,13 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
   const [isEmergency, setIsEmergency] = useState(false)
   const [selectedSlotKey, setSelectedSlotKey] = useState(null)
   const [absenceNote, setAbsenceNote] = useState('')
+  const [alsoNextWeeks, setAlsoNextWeeks] = useState(false)
+  const [nextWeeksCount, setNextWeeksCount] = useState(1)
+
+  // Per annulla assenza: lista assenze future dello stesso evento
+  const [futureAbsences, setFutureAbsences] = useState([])
+  const [selectedFutureIds, setSelectedFutureIds] = useState(new Set())
+  const [showCancelOptions, setShowCancelOptions] = useState(false)
 
   const allClasses = event.allClassesForDate||event.classBlock||[]
   const isSchool = event.eventType==='school'
@@ -541,6 +538,10 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
           const{error}=await supabase.from('attendances_new').insert(rows); if(error)throw error
         }
       } else {
+        // Se già presente, cancella e reinserisci (modifica)
+        if (myAttendances.length > 0) {
+          for(const a of myAttendances) await supabase.from('attendances_new').delete().eq('id',a.id)
+        }
         const payload={coach_id:profile.id,instance_id:instanceId,is_jolly:selectedSlotKey==='jolly'}
         if(selectedSlotKey?.startsWith('cat_'))payload.category_id=parseInt(selectedSlotKey.split('_')[1])
         else if(selectedSlotKey?.startsWith('grp_'))payload.group_id=parseInt(selectedSlotKey.split('_')[1])
@@ -565,29 +566,133 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
         if (!window.confirm('Hai già dichiarato presenza. Vuoi annullare la presenza e dichiarare assenza?')) { setSaving(false); setMode('idle'); return }
         for(const a of myAttendances) await supabase.from('attendances_new').delete().eq('id',a.id)
       }
-      await supabase.from('absences').insert({
-        coach_id:profile.id, date_from:event.dateStr, date_to:event.dateStr,
-        event_id:event.id, instance_date:event.dateStr,
-        absence_type:'event', note:absenceNote||null,
-      })
+
+      const dates = [event.dateStr]
+      if (alsoNextWeeks) {
+        for (let i = 1; i <= nextWeeksCount; i++) {
+          dates.push(addWeeksLocal(event.dateStr, i))
+        }
+      }
+
+      // Controlla conflitti presenze per date future
+      for (const dateStr of dates) {
+        if (dateStr === event.dateStr) continue // già gestito sopra
+        const { data: futureInst } = await supabase
+          .from('event_instances')
+          .select('id')
+          .eq('event_id', event.id)
+          .eq('instance_date', dateStr)
+          .maybeSingle()
+
+        if (futureInst?.id) {
+          const { data: futureAtt } = await supabase
+            .from('attendances_new')
+            .select('id')
+            .eq('coach_id', profile.id)
+            .eq('instance_id', futureInst.id)
+          if (futureAtt?.length > 0) {
+            const ok = window.confirm(`Hai una presenza dichiarata il ${dateStr}. Vuoi annullarla?`)
+            if (ok) {
+              for (const a of futureAtt) await supabase.from('attendances_new').delete().eq('id', a.id)
+            }
+          }
+        }
+      }
+
+      for (const dateStr of dates) {
+        await supabase.from('absences').insert({
+          coach_id: profile.id,
+          date_from: dateStr, date_to: dateStr,
+          event_id: event.id, instance_date: dateStr,
+          absence_type: 'event', note: absenceNote || null,
+        })
+      }
+
       setSaving(false); setMode('idle'); setAbsenceNote('')
-      // Ricarica assenze nel modal padre
+      setAlsoNextWeeks(false); setNextWeeksCount(1)
       await onAbsenceChange()
       await onRefetch()
     } catch(err){ console.error(err); alert('Errore: '+err.message); setSaving(false) }
   }
 
-  async function annullaAssenza() {
-    if (!myAbsence) return
-    await supabase.from('absences').delete().eq('id', myAbsence.id)
-    await onAbsenceChange()
+  async function startAnnullaAssenza() {
+    // Carica assenze future dello stesso evento
+    const { data: future } = await supabase
+      .from('absences')
+      .select('*')
+      .eq('coach_id', profile.id)
+      .eq('event_id', event.id)
+      .eq('absence_type', 'event')
+      .gt('instance_date', event.dateStr)
+      .order('instance_date')
+    setFutureAbsences(future || [])
+    setSelectedFutureIds(new Set())
+    if (future?.length > 0) {
+      setShowCancelOptions(true)
+    } else {
+      // Nessuna futura, elimina solo questa
+      await supabase.from('absences').delete().eq('id', myAbsence.id)
+      await onAbsenceChange()
+    }
+  }
+
+  async function confirmAnnullaAssenza() {
+    setSaving(true)
+    const idsToDelete = [myAbsence.id, ...Array.from(selectedFutureIds)]
+    for (const id of idsToDelete) await supabase.from('absences').delete().eq('id', id)
+    setSaving(false)
+    setShowCancelOptions(false)
+    setFutureAbsences([])
+    setSelectedFutureIds(new Set())
     setMode('idle')
+    await onAbsenceChange()
+  }
+
+  function toggleFutureId(id) {
+    setSelectedFutureIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  // Modal annulla con opzioni
+  if (showCancelOptions) {
+    return (
+      <div style={{ borderTop:'1px solid #f0f0f0', background:'#fff' }}>
+        <div style={{ padding:'14px 16px', background:'#fff5f5', borderTop:'1px solid #fecaca' }}>
+          <div style={{ fontSize:13, fontWeight:600, color:'#b91c1c', marginBottom:8 }}>Annulla assenza</div>
+          <div style={{ fontSize:12, color:'#555', marginBottom:10 }}>
+            Hai {futureAbsences.length} assenza/e programmate per le settimane successive. Seleziona quelle da eliminare:
+          </div>
+          <div style={{ maxHeight:160, overflowY:'auto', marginBottom:10, display:'flex', flexDirection:'column', gap:4 }}>
+            {futureAbsences.map(ab => (
+              <label key={ab.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', background:'#fff', borderRadius:6, border:'1px solid #fecaca', cursor:'pointer' }}>
+                <input type="checkbox" checked={selectedFutureIds.has(ab.id)} onChange={() => toggleFutureId(ab.id)} />
+                <span style={{ fontSize:12, color:'#b91c1c' }}>{ab.instance_date}</span>
+                {ab.note && <span style={{ fontSize:11, color:'#aaa' }}>— {ab.note}</span>}
+              </label>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={confirmAnnullaAssenza} disabled={saving}
+              style={{ flex:2, padding:'9px', borderRadius:8, border:'none', background:'#b91c1c', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+              {saving ? '...' : `Elimina questa${selectedFutureIds.size > 0 ? ` + ${selectedFutureIds.size} future` : ''}`}
+            </button>
+            <button onClick={() => setShowCancelOptions(false)}
+              style={{ flex:1, padding:'9px', borderRadius:8, border:'1px solid #ddd', background:'#fff', fontSize:13, color:'#555', cursor:'pointer' }}>
+              Annulla
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div style={{ borderTop:'1px solid #f0f0f0', background:'#fff' }}>
 
-      {/* MODALITÀ DICHIARA PRESENZA */}
+      {/* DICHIARA PRESENZA */}
       {mode==='declare' && (
         <div style={{ padding:'14px 16px 0', borderTop:'1px solid #e5e5e5', background:'#f8f8f7' }}>
           {isSchool?(
@@ -612,7 +717,9 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
             </>
           ):(
             <>
-              <div style={{fontSize:12,color:'#666',fontWeight:500,marginBottom:10}}>{event.eventType==='other'?'Quale compito?':'Per quale gruppo?'}</div>
+              <div style={{fontSize:12,color:'#666',fontWeight:500,marginBottom:10}}>
+                {isSigned ? '✏️ Modifica la tua presenza:' : event.eventType==='other'?'Quale compito?':'Per quale gruppo?'}
+              </div>
               {slotWithCoverage.map(opt=>{
                 const isSel=selectedSlotKey===opt.key
                 const s=coverageBadge(opt.covered+jollyCount,opt.min)
@@ -633,14 +740,14 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
           <div style={{display:'flex',gap:8,paddingBottom:12,marginTop:4}}>
             <button onClick={confirmPresence} disabled={isSchool?!canConfirmSchool:!canConfirmOther||saving}
               style={{flex:2,padding:'10px',borderRadius:8,border:'none',fontSize:13,fontWeight:600,cursor:'pointer',background:(isSchool?canConfirmSchool:canConfirmOther)?'#2e7d4f':'#e5e5e5',color:(isSchool?canConfirmSchool:canConfirmOther)?'#fff':'#aaa'}}>
-              {saving?'Salvataggio...':'✓ Conferma presenza'}
+              {saving?'Salvataggio...':isSigned?'✓ Salva modifica':'✓ Conferma presenza'}
             </button>
             <button onClick={()=>setMode('idle')} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #ddd',background:'#fff',fontSize:13,color:'#555',cursor:'pointer'}}>Annulla</button>
           </div>
         </div>
       )}
 
-      {/* MODALITÀ DISDICI */}
+      {/* DISDICI */}
       {mode==='disdici' && (
         <div style={{padding:'14px 16px 0',borderTop:'1px solid #e5e5e5',background:'#fef2f2'}}>
           <div style={{fontSize:12,color:'#666',fontWeight:500,marginBottom:10}}>Sei sicuro di voler disdire {myAttendances.length>1?'tutte le presenze':'la presenza'}?</div>
@@ -651,7 +758,7 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
         </div>
       )}
 
-      {/* MODALITÀ DICHIARA ASSENZA */}
+      {/* DICHIARA ASSENZA */}
       {mode==='absent' && (
         <div style={{padding:'14px 16px 0',borderTop:'1px solid #e5e5e5',background:'#fff5f5'}}>
           <div style={{fontSize:12,color:'#b91c1c',fontWeight:500,marginBottom:8}}>🚫 Dichiara assenza per questo evento</div>
@@ -659,6 +766,17 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
           <div className="field">
             <label>Nota (opzionale)</label>
             <input value={absenceNote} onChange={e=>setAbsenceNote(e.target.value)} placeholder="es. Malattia, impegno lavorativo..." style={{width:'100%',padding:'8px 10px',border:'1.5px solid #fecaca',borderRadius:8,fontSize:13}}/>
+          </div>
+          <div style={{ marginBottom:12, padding:'10px 12px', background:'#fef2f2', borderRadius:8, border:'1px solid #fecaca' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
+              <input type="checkbox" checked={alsoNextWeeks} onChange={e => setAlsoNextWeeks(e.target.checked)} />
+              <span style={{ fontSize:12, color:'#b91c1c' }}>Assente anche le prossime</span>
+              <input type="number" min={1} max={20} value={nextWeeksCount}
+                onChange={e => setNextWeeksCount(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!alsoNextWeeks}
+                style={{ width:44, padding:'2px 6px', border:'1px solid #fecaca', borderRadius:6, fontSize:12, textAlign:'center', background:alsoNextWeeks?'#fff':'#f5f5f5', color:alsoNextWeeks?'#b91c1c':'#aaa' }} />
+              <span style={{ fontSize:12, color:'#b91c1c' }}>settimane</span>
+            </label>
           </div>
           <div style={{display:'flex',gap:8,paddingBottom:12}}>
             <button onClick={confirmAbsence} disabled={saving} style={{flex:2,padding:'10px',borderRadius:8,border:'none',background:'#b91c1c',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>{saving?'Salvataggio...':'🚫 Conferma assenza'}</button>
@@ -673,16 +791,31 @@ function PresenceFooter({ event, profile, attendances, myAttendances, isSigned, 
           {myAbsence && (
             <div style={{background:'#fff5f5',border:'1px solid #fecaca',borderRadius:10,padding:'10px 14px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <span style={{fontSize:13,color:'#b91c1c',fontWeight:500}}>🚫 Hai dichiarato assenza{myAbsence.note ? ` — ${myAbsence.note}` : ''}</span>
-              <button onClick={annullaAssenza} style={{fontSize:12,padding:'4px 10px',borderRadius:6,border:'1px solid #fecaca',background:'#fff',color:'#b91c1c',cursor:'pointer'}}>Annulla</button>
+              <button onClick={startAnnullaAssenza} style={{fontSize:12,padding:'4px 10px',borderRadius:6,border:'1px solid #fecaca',background:'#fff',color:'#b91c1c',cursor:'pointer'}}>Annulla</button>
             </div>
           )}
           <div style={{display:'flex',gap:8}}>
-            {isSigned
-              ? <button onClick={()=>setMode('disdici')} style={{flex:1,padding:'11px',background:'#fcd5d5',border:'none',borderRadius:10,fontSize:14,fontWeight:600,color:'#b91c1c',cursor:'pointer'}}>Disdici presenza</button>
-              : <button onClick={()=>setMode('declare')} disabled={!!myAbsence} style={{flex:1,padding:'11px',background:myAbsence?'#e5e5e5':'#1a1a1a',border:'none',borderRadius:10,fontSize:14,fontWeight:600,color:myAbsence?'#aaa':'#fff',cursor:myAbsence?'default':'pointer'}}>Dichiara presenza</button>
-            }
+            {isSigned ? (
+              <>
+                <button onClick={()=>setMode('disdici')} style={{flex:1,padding:'11px',background:'#fcd5d5',border:'none',borderRadius:10,fontSize:14,fontWeight:600,color:'#b91c1c',cursor:'pointer'}}>
+                  Disdici presenza
+                </button>
+                <button onClick={()=>setMode('declare')} title="Modifica presenza"
+                  style={{padding:'11px 14px',background:'#f8f8f7',border:'1px solid #e5e5e5',borderRadius:10,fontSize:13,fontWeight:600,color:'#555',cursor:'pointer',flexShrink:0}}>
+                  ✏️
+                </button>
+              </>
+            ) : (
+              <button onClick={()=>setMode('declare')} disabled={!!myAbsence}
+                style={{flex:1,padding:'11px',background:myAbsence?'#e5e5e5':'#1a1a1a',border:'none',borderRadius:10,fontSize:14,fontWeight:600,color:myAbsence?'#aaa':'#fff',cursor:myAbsence?'default':'pointer'}}>
+                Dichiara presenza
+              </button>
+            )}
             {!myAbsence && (
-              <button onClick={()=>setMode('absent')} style={{padding:'11px 14px',background:'#fff5f5',border:'1px solid #fecaca',borderRadius:10,fontSize:13,fontWeight:600,color:'#b91c1c',cursor:'pointer',flexShrink:0}} title="Dichiara assenza">🚫</button>
+              <button onClick={()=>setMode('absent')} title="Dichiara assenza"
+                style={{padding:'11px 14px',background:'#fff5f5',border:'1px solid #fecaca',borderRadius:10,fontSize:13,fontWeight:600,color:'#b91c1c',cursor:'pointer',flexShrink:0}}>
+                🚫
+              </button>
             )}
           </div>
         </div>
@@ -731,8 +864,6 @@ function EditInstanceView({ event, onDone, onCancel }) {
   }
 
   function update(id,field,value){ setClasses(prev=>prev.map(c=>c.id===id?{...c,[field]:value,_dirty:true}:c)) }
-
-  function addDaysToStr(dateStr,d){ const[y,m,day]=dateStr.split('-').map(Number); const dt=new Date(y,m-1,day+d); return[dt.getFullYear(),String(dt.getMonth()+1).padStart(2,'0'),String(dt.getDate()).padStart(2,'0')].join('-') }
 
   async function save() {
     setSaving(true)
